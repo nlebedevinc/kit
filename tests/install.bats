@@ -57,11 +57,8 @@ piped_install() { "$TEST_BASH" -s -- "$@" <"$REPO_ROOT/install.sh"; }
   [[ "$output" != *"kit-called"* ]]
 }
 
-@test "the placeholder repo gives a clear error instead of a failed clone" {
-  unset KIT_REPO
-  run piped_install
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"KIT_REPO"* ]]
+@test "the default repo is github.com/nlebedevinc/kit" {
+  grep -q 'local repo=${KIT_REPO:-nlebedevinc/kit}' "$REPO_ROOT/install.sh"
 }
 
 @test "running install.sh from a checkout uses that checkout" {

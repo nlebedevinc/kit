@@ -7,7 +7,7 @@
 
 ## Before the first real run
 
-- [ ] Set the GitHub username in the install URLs and as the `KIT_REPO` default in `install.sh`
+- [x] Set the GitHub username in the install URLs and as the `KIT_REPO` default in `install.sh`
 - [ ] Cross-check the OpenRGB 1.1 SHA-256 against the Codeberg release page
 - [ ] Copyright holder in `LICENSE`
 - [ ] On `beast`: `kit doctor` all green, and a second `kit install` reports every module "already done"

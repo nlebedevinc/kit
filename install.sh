@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # kit bootstrap. Sets up this machine in one go:
 #
-#   curl -fsSL https://raw.githubusercontent.com/<github-user>/kit/main/install.sh | bash -s -- --host beast
-#   wget -qO- https://raw.githubusercontent.com/<github-user>/kit/main/install.sh | bash -s -- --host beast
+#   curl -fsSL https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash -s -- --host beast
+#   wget -qO- https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash -s -- --host beast
 #
 # Installs git/curl if missing, clones (or fast-forwards) kit into ~/.local/share/kit,
 # links ~/.local/bin/kit, then runs `kit install` with the arguments given here.
@@ -15,7 +15,7 @@
 main() {
   set -euo pipefail
 
-  local repo=${KIT_REPO:-<github-user>/kit}
+  local repo=${KIT_REPO:-nlebedevinc/kit}
   local ref=${KIT_REF:-main}
   local path=${KIT_PATH:-}
   local bindir="$HOME/.local/bin"
@@ -79,7 +79,6 @@ main() {
     fail "$path exists but isn't a git checkout. Move it away, then run this again."
   else
     case $repo in
-      *'<'*) fail "the default repository isn't set yet. Run with KIT_REPO=owner/kit (or a URL)." ;;
       *://* | /* | ./* | git@*) url=$repo ;;
       *) url="https://github.com/$repo.git" ;;
     esac

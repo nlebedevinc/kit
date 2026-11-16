@@ -15,15 +15,15 @@
 One-line install (Tailscale/Omarchy style):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<github-user>/kit/main/install.sh | bash -s -- --host beast
+curl -fsSL https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash -s -- --host beast
 # fresh Ubuntu without curl:
-wget -qO- https://raw.githubusercontent.com/<github-user>/kit/main/install.sh | bash -s -- --host beast
+wget -qO- https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash -s -- --host beast
 ```
 
 Or read first:
 
 ```bash
-git clone https://github.com/<github-user>/kit.git ~/.local/share/kit
+git clone https://github.com/nlebedevinc/kit.git ~/.local/share/kit
 ~/.local/share/kit/install.sh
 ```
 
@@ -36,7 +36,7 @@ Modeled on Omarchy's original `boot.sh` (clone to `~/.local/share/<name>`, then 
 1. **Truncation guard:** the whole script is inside `main() { … }`, and the last line is `main "$@"`. If the download is cut off, nothing runs.
 2. **Preconditions:** refuse root; detect the OS. The bootstrap itself must not need `curl` (it may have been fetched with `wget`).
 3. **Ensure git and curl:** a fresh Ubuntu Desktop lacks them, so `sudo apt-get update && sudo apt-get install -y git curl` for whichever is missing (macOS later: Xcode command line tools). Later modules (e.g. tailscale) may then rely on `curl`.
-4. **Get the repo** into `KIT_PATH` (default `~/.local/share/kit`) from `KIT_REPO` (default `<github-user>/kit`) at `KIT_REF` (default `main`):
+4. **Get the repo** into `KIT_PATH` (default `~/.local/share/kit`) from `KIT_REPO` (default `nlebedevinc/kit`) at `KIT_REF` (default `main`):
    - not there → `git clone --branch "$KIT_REF"`;
    - already a clean clone → `git fetch` and fast-forward to `KIT_REF`;
    - local changes → stop and say so (unlike Omarchy, never `rm -rf` an existing clone).
@@ -369,7 +369,7 @@ Symlinks back up existing files (`*.bak.<timestamp>`) before replacing them.
 
 ## 13. Open items
 
-- [ ] **GitHub username** for the install URL (placeholder `<github-user>`).
+- [x] **GitHub username:** `nlebedevinc` (repo `nlebedevinc/kit`).
 - [ ] **OpenRGB SHA-256:** the value above was computed from the locally downloaded AppImage. Cross-check it against the Codeberg release page before relying on it.
 - [ ] **LICENSE:** copyright holder name for the MIT license.
 - [ ] Confirm the SETUP-LOG §10 items on the real machine (Ubuntu version, `sshd -T`, key expiry, current `lights-off.service` state).

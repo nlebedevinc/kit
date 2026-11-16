@@ -43,7 +43,7 @@ If the machine boots straight into Windows and the firmware shows only "Windows 
 Log in to the desktop, connect to the network, open a terminal:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/<github-user>/kit/main/install.sh | bash -s -- --host beast
+wget -qO- https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash -s -- --host beast
 ```
 
 (`curl -fsSL … | bash -s -- --host beast` works too once curl is installed.)

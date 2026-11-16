@@ -13,9 +13,9 @@ Set up my machines from a fresh OS install with one command. Each machine has a 
 On a fresh Ubuntu Desktop, logged in, connected to the network:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/<github-user>/kit/main/install.sh | bash -s -- --host beast
+wget -qO- https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash -s -- --host beast
 # or, once curl is installed:
-curl -fsSL https://raw.githubusercontent.com/<github-user>/kit/main/install.sh | bash -s -- --host beast
+curl -fsSL https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash -s -- --host beast
 ```
 
 The one command is the whole install: it adds git and curl if missing, downloads kit to `~/.local/share/kit`, links `~/.local/bin/kit` and runs `kit install`. Running it again updates kit and re-applies (nothing changes if nothing needs to).
@@ -23,7 +23,7 @@ The one command is the whole install: it adds git and curl if missing, downloads
 Prefer to read first:
 
 ```bash
-git clone https://github.com/<github-user>/kit.git ~/.local/share/kit
+git clone https://github.com/nlebedevinc/kit.git ~/.local/share/kit
 ~/.local/share/kit/install.sh --host beast --dry-run    # see what it would do
 ~/.local/share/kit/install.sh --host beast
 ```
