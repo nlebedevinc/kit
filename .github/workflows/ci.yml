@@ -8,9 +8,9 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: shellcheck
-        run: shellcheck bin/kit install.sh lib/*.sh modules/*/*.sh hosts/*/host.conf hosts/*/modules/*.sh hosts/*/commands/* tests/helpers.bash tests/stubs/*
+        run: shellcheck bin/kit install.sh lib/*.sh modules/*/*.sh hosts/*/host.conf hosts/*/modules/*.sh hosts/*/commands/* tests/helpers.bash tests/fresh-ubuntu.sh tests/stubs/*
 
   test:
     strategy:
@@ -18,7 +18,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]   # macos-latest runs the suite on /bin/bash 3.2
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: install bats
         run: |
           if [ "$RUNNER_OS" = macOS ]; then brew install bats-core; else sudo apt-get update && sudo apt-get install -y bats; fi
@@ -31,17 +31,8 @@ jobs:
     # The real piped path on a stock Ubuntu image with no git or curl (SPEC §11).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: pin the commit under test to a branch the bootstrap can clone
         run: git checkout -B ci-under-test
       - name: curl | bash in ubuntu:24.04
-        run: |
-          docker run --rm -v "$PWD:/src:ro" ubuntu:24.04 bash -euc '
-            apt-get update -qq && apt-get install -y -qq sudo >/dev/null
-            if command -v git || command -v curl; then echo "image is not stock"; exit 1; fi
-            useradd -m -s /bin/bash tester
-            echo "tester ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/tester
-            cp -r /src /home/tester/kit-src && chown -R tester: /home/tester/kit-src
-            su - tester -c "cat ~/kit-src/install.sh | KIT_REPO=\$HOME/kit-src KIT_REF=ci-under-test bash -s -- --dry-run --yes --host beast"
-            su - tester -c "~/.local/bin/kit --host beast --dry-run list"
-          '
+        run: docker run --rm -e KIT_REF=ci-under-test -v "$PWD:/src:ro" ubuntu:24.04 bash /src/tests/fresh-ubuntu.sh
