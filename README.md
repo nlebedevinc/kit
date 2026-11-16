@@ -85,6 +85,4 @@ Settings: `hosts/beast/host.conf` holds the defaults; put your changes in `~/.co
 ## More
 
 - [Troubleshooting](docs/hosts/beast/troubleshooting.md)
-- [Roadmap](ROADMAP.md)
-- [Requirements](SPEC.md)
 - Development: `shellcheck` + `bats tests/` (the core must run on macOS's bash 3.2)

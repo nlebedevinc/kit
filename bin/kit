@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# kit: set up this machine from its host profile. See SPEC.md.
+# kit: set up this machine from its host profile. See README.md.
 set -euo pipefail
 
 KIT_VERSION=0.1.0
