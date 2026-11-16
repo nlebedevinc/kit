@@ -1,0 +1,8 @@
+# Never commit personal overrides, secrets or downloads.
+/kit.conf
+*.local.conf
+.env
+*.env
+*.AppImage
+*.bak.*
+.DS_Store
