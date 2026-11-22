@@ -43,3 +43,17 @@ for d in docs:
 print("valid:", len(docs))
 ' "$REPO_ROOT/docs/json-schema/$1" "${2:-doc}"
 }
+
+# refute CMD...: CMD must fail. (A bare `! cmd` never fails a bats test.)
+refute() {
+  if "$@"; then
+    echo "expected to fail: $*"
+    return 1
+  fi
+}
+
+# bats `run` mixes stderr into $output; these pick out beast's JSON (stdout) lines.
+# shellcheck disable=SC2154  # $output is set by bats' run
+json_lines() { printf '%s\n' "$output" | grep '^{'; }
+# shellcheck disable=SC2154
+summary_line() { printf '%s\n' "$output" | grep '^{"type":"summary"'; }

@@ -76,23 +76,23 @@ CONF
 
 @test "non-interactive: prompts are never read; confirm needs --yes" {
   BEAST_NONINTERACTIVE=1
-  ! interactive
-  ! ask "Really?" </dev/null
-  ! confirm "Really?" </dev/null
+  refute interactive
+  refute ask "Really?" </dev/null
+  refute confirm "Really?" </dev/null
   BEAST_YES=1
   confirm "Really?" </dev/null
 }
 
 @test "confirm_safety: non-interactive only with --yes" {
   BEAST_NONINTERACTIVE=1 BEAST_YES=0
-  ! confirm_safety "Go headless?"
+  refute confirm_safety "Go headless?"
   BEAST_YES=1
   confirm_safety "Go headless?"
 }
 
 @test "read_secret refuses without a terminal" {
   BEAST_NONINTERACTIVE=1
-  ! read_secret pw "Password"
+  refute read_secret pw "Password"
 }
 
 @test "manual_action records JSON and a readable line" {

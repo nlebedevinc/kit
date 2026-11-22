@@ -3,7 +3,9 @@
 echo "systemctl $*" >>"$STATE/calls"
 case $1 in
   show) echo "${STUB_WATCHDOG-30s}" ;;
-  --failed) [ -z "${STUB_FAILED:-}" ] || printf '%s loaded failed failed X\n' $STUB_FAILED ;;
+  --failed)
+    # shellcheck disable=SC2086  # one line per unit
+    [ -z "${STUB_FAILED:-}" ] || printf '%s loaded failed failed X\n' $STUB_FAILED ;;
   is-active)
     [ "$2" = --quiet ] && u=$3 || u=$2
     if [[ " ${STUB_INACTIVE:-} " == *" $u "* ]]; then [ "$2" = --quiet ] || echo inactive; exit 3; fi
@@ -15,6 +17,7 @@ case $1 in
       ssh.socket) echo "${STUB_SSH_SOCKET-enabled}" ;;
       *) echo enabled ;;
     esac ;;
-  get-default) echo "${STUB_DEFAULT-multi-user.target}" ;;
+  get-default) cat "$STATE/default" 2>/dev/null || echo "${STUB_DEFAULT-multi-user.target}" ;;
+  set-default) echo "$2" >"$STATE/default" ;;
   *) exit 0 ;;
 esac
