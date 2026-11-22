@@ -17,6 +17,7 @@ setup() {
 }
 teardown() { beast_teardown; }
 
+# shellcheck disable=SC2120  # called with and without flags
 piped_install() { bash -s -- "$@" <"$REPO_ROOT/install.sh"; }
 
 @test "piped install clones, links the command and hands off all flags" {
@@ -63,5 +64,6 @@ piped_install() { bash -s -- "$@" <"$REPO_ROOT/install.sh"; }
 }
 
 @test "the default repo is github.com/nlebedevinc/beast" {
+  # shellcheck disable=SC2016  # a literal line of install.sh
   grep -q 'local repo=${BEAST_REPO:-nlebedevinc/beast}' "$REPO_ROOT/install.sh"
 }
