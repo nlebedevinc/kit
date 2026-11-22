@@ -42,3 +42,10 @@ apply() {
 }
 
 verify() { check; }
+
+# Sleep allowed again; the desktop starts at the next boot (now: beast gui start).
+uninstall() {
+  # shellcheck disable=SC2086
+  run_sudo systemctl unmask $SLEEP_TARGETS
+  run_sudo systemctl set-default graphical.target
+}
