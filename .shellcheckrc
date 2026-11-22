@@ -1,5 +1,0 @@
-# Resolve `# shellcheck source=` paths relative to each script.
-source-path=SCRIPTDIR
-external-sources=true
-# Module functions (describe/check/apply/…) are called by name from bin/kit.
-disable=SC2329

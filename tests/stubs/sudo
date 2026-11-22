@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-# Fake sudo: records the call (dry runs must never reach it), runs only harmless checks.
-[ "$1" = -n ] && shift
-case $1 in
-  true|sshd|grep) exec "$@" ;;
-  *) echo "SUDO $*" >>"$STUBSTATE/side-effects"; exit 0 ;;
-esac

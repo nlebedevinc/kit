@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Fake dpkg-query: a package is installed if $STUBSTATE/pkg.<name> exists.
-pkg=${!#}
-if [ -f "$STUBSTATE/pkg.$pkg" ]; then printf 'install ok installed'; else exit 1; fi
