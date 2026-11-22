@@ -38,4 +38,4 @@ Then run the installer from the [README](../README.md).
 
 - If it won't boot after a memory change: **one stick, in DIMMA2**.
 - **Wait up to 10 minutes** after any memory change or CMOS reset. The first boot retrains DDR5 and can stay black that long. Don't cut power early.
-- **EZ Debug LEDs**: yellow DRAM flashing briefly at startup is training; red (CPU) and yellow (DRAM) alternating means memory training keeps failing (wrong slot or a bad stick). Try the other stick alone in DIMMA2.
+- **EZ Debug LEDs**: red (CPU) and yellow (DRAM) alternating continuously means memory training keeps failing: wrong slot or a bad stick. When the machine failed, the yellow DRAM LED flashed briefly, then there was no video and no keyboard. Try each stick alone in DIMMA2; the one that doesn't boot is faulty.
