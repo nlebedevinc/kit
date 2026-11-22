@@ -5,6 +5,9 @@
 HOST_NAME=beast
 HOST_USER=me
 
+# Packages for 10-base-packages (log §3, plus smartmontools from §11.3)
+BASE_PACKAGES="openssh-server build-essential git curl tmux htop btop nvtop lm-sensors smartmontools"
+
 # Wi-Fi profile to make system-wide. Empty: the active Wi-Fi connection.
 WIFI_CONNECTION=""
 
