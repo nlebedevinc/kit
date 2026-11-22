@@ -69,6 +69,13 @@ expect() {
   [ "$(printf '%s' "$output" | jq -r '.checks[] | select(.id=="gpu") | .status')" = skip ]
 }
 
+@test "hardware: gpu is skipped when neither lspci nor nvidia-smi exist" {
+  mkdir -p "$TMP/bin"
+  for c in "$REPO_ROOT"/tests/stubs/*; do case ${c##*/} in nvidia-smi | lspci) ;; *) ln -s "$c" "$TMP/bin/" ;; esac; done
+  run env PATH="$TMP/bin:/usr/bin:/bin" bash "$REPO_ROOT/bin/beast-check" --json --section hardware
+  [ "$(printf '%s' "$output" | jq -r '.checks[] | select(.id=="gpu") | .status')" = skip ]
+}
+
 @test "hardware: cpu.temp and ram.temp" {
   expect cpu.temp pass
   expect cpu.temp warn STUB_CPU_TEMP=90

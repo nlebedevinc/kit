@@ -14,7 +14,9 @@ has_key() {
     grep -Eq '(^|[[:space:]])(ssh-(ed25519|rsa|dss)|ecdsa-sha2-[a-z0-9-]+|sk-[a-z0-9@.-]+) AAAA' "$HOME/.ssh/authorized_keys"
 }
 
-socket_enabled() { [ "$(systemctl is-enabled ssh.socket 2>/dev/null)" = enabled ]; }
+socket_enabled() {
+  [ "$(systemctl is-enabled ssh.socket 2>/dev/null)" = enabled ] && systemctl is-active --quiet ssh.socket
+}
 
 check() {
   apt_installed openssh-server && socket_enabled && file_same "$SRC" "$DROPIN"

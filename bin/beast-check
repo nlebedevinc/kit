@@ -190,7 +190,7 @@ if want hardware "Hardware"; then
       ;;
   esac
 
-  if have lspci && [ -z "$(lspci -d 10de: 2>/dev/null)" ] && ! have nvidia-smi; then
+  if ! have nvidia-smi && { ! have lspci || [ -z "$(lspci -d 10de: 2>/dev/null)" ]; }; then
     skip gpu "GPU" "no NVIDIA GPU"
   elif have nvidia-smi && gpu=$(nvidia-smi --query-gpu=name,temperature.gpu,power.draw,driver_version --format=csv,noheader 2>/dev/null); then
     IFS=',' read -r gname gtemp gpow gdrv <<<"$gpu"

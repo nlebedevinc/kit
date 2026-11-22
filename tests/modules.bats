@@ -20,6 +20,11 @@ status_of() { printf '%s\n' "$output" | grep "\"id\":\"$1\"" | jq -r .status; }
   [ "$(cat "$TMP/t")" -lt "$(cat "$TMP/r")" ]
 }
 
+@test "ssh: an enabled but stopped ssh.socket is started" {
+  run env STUB_INACTIVE=ssh.socket bash "$REPO_ROOT/bin/beast" install ssh --json </dev/null
+  grep -q 'systemctl enable --now ssh.socket' "$STATE/calls"
+}
+
 @test "ssh: a config sshd -t rejects is rolled back and ssh isn't restarted" {
   mkdir -p "$HOME/.ssh"
   echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITESTONLY me@mac" >"$HOME/.ssh/authorized_keys"
