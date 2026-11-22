@@ -40,7 +40,7 @@ Module statuses: `applied` (changed now), `already` (nothing to do), `skipped` (
 ## Developing the repo
 
 - A module is `modules/NN-name.sh` defining `describe`, `check` (0 = applied), `plan` (one action per line, no side effects), `apply`, `verify`, and optionally `uninstall`. Return `$MOD_SKIPPED`, `$MOD_MANUAL` or `$MOD_BLOCKED` for those outcomes; record `manual_action` and `reboot_required` with the helpers in `lib/common.sh`.
-- Don't add tools or steps that aren't in `docs/SETUP-LOG.md`, except those in `ROADMAP.md`.
+- Don't add tools or steps that aren't in `docs/SETUP-LOG.md` unless the owner asks for them.
 - Before committing: `shellcheck install.sh bin/* lib/*.sh modules/*.sh` and `bats tests/`.
 - To add a check to `bin/beast-check`: give it a stable ID and a section, define its pass/warn/fail (and skip) rules, add a line to its section, and add a test in `tests/beast-check.bats` with a stub for the command it reads.
 
