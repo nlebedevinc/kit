@@ -17,7 +17,7 @@ export BEAST_ROOT
 # shellcheck source=../lib/common.sh
 . "$BEAST_ROOT/lib/common.sh"
 
-COMMANDS="install plan list doctor update gui uninstall describe"
+COMMANDS="install plan list doctor update gui uninstall config describe"
 
 # ---------------------------------------------------------------- help
 
@@ -32,7 +32,8 @@ Commands:
   doctor                 Run the health check (beast-check)
   update                 git pull this repo, then re-run install
   gui on|off|start|stop  Desktop fallback: boot to it (on/off) or start/stop it now
-  uninstall <module>     Revert a module (reliability, openrgb, lights)
+  uninstall <module>     Revert a module (reliability, headless, openrgb, lights)
+  config                 Current settings (secrets hidden) and where they come from
   describe               Commands, modules, flags, env vars and exit codes
 
 Flags:
@@ -42,6 +43,7 @@ Flags:
       --json             Machine-readable output on stdout (NDJSON for install/plan)
       --fix              nvidia: install the driver if nvidia-smi fails
       --config PATH      Config file (default ~/.config/beast/beast.conf)
+      --host NAME        Check that this is the machine NAME (HOST_NAME in the config)
       --no-color         No colors (also NO_COLOR=1)
   -v, --verbose          Print every command as it runs
   -h, --help             Help (also: beast <command> --help)
@@ -80,7 +82,7 @@ Runs beast-check, the health check. Sections: hardware storage stability network
 services client. --strict: warnings also fail (exit 3). Exit 1 on any failure.
 EOF
       ;;
-    update) echo "Usage: beast update [install flags]: git pull --ff-only, then beast install." ;;
+    update) echo "Usage: beast update [install flags]: git pull --ff-only, then beast install, including apt full-upgrade." ;;
     gui)
       cat <<'EOF'
 Usage: beast gui on|off|start|stop
@@ -91,7 +93,8 @@ Usage: beast gui on|off|start|stop
   stop   stop it
 EOF
       ;;
-    uninstall) echo "Usage: beast uninstall <module> [--yes]: revert reliability, openrgb or lights. Shows what will be removed first." ;;
+    uninstall) echo "Usage: beast uninstall <module> [--yes]: revert reliability, headless, openrgb or lights. Shows what will be removed first." ;;
+    config) echo "Usage: beast config [--json]: the settings in effect (defaults plus your config file); secrets in the environment show only as set or not." ;;
     describe) echo "Usage: beast describe [--json]: commands, flags, modules, env vars, config keys and exit codes." ;;
   esac
 }
@@ -258,13 +261,27 @@ preflight() {
   mkdir -p "$BEAST_STATE_DIR"
   take_lock
   ensure_sudo
-  local id ver
+  local id ver host expected
   id=$(os_release_value ID)
   ver=$(os_release_value VERSION_ID)
+  if [ "$id" != ubuntu ]; then
+    if [ "$BEAST_DRY_RUN" = 1 ]; then
+      warn "this is ${id:-an unknown OS}, not Ubuntu; continuing only because of --dry-run"
+    else
+      die "this is ${id:-an unknown OS}, not Ubuntu. beast sets up Ubuntu Desktop 24.04 or 26.04."
+    fi
+  fi
   case "$id $ver" in
     "ubuntu 24.04" | "ubuntu 26.04") ;;
-    *) warn "this is ${id:-an unknown OS} ${ver}, not Ubuntu 24.04 or 26.04; continuing anyway" ;;
+    ubuntu*) warn "Ubuntu $ver isn't tested (24.04 and 26.04 are); continuing anyway" ;;
   esac
+  # In a subshell: load_config exports BEAST_CONFIG, which the modules must not inherit
+  # before 00-preflight has created the file.
+  expected=$(load_config 2>/dev/null && printf '%s' "$HOST_NAME")
+  host=$(hostname 2>/dev/null || true)
+  if [ -n "$host" ] && [ "$host" != "$expected" ]; then
+    warn "this machine is named '$host', but the config expects '$expected'. beast won't rename it."
+  fi
   if [ "$BEAST_DRY_RUN" != 1 ]; then _log_file "beast install $* (session: $(is_ssh_session && echo ssh || echo local), $(interactive && echo interactive || echo non-interactive))"; fi
 }
 
@@ -317,6 +334,8 @@ cmd_doctor() {
 
 cmd_update() {
   require_not_root
+  # 10-base-packages upgrades the system on every update, not only on the first install.
+  export BEAST_UPGRADE=1
   if [ "$BEAST_DRY_RUN" = 1 ]; then
     printf 'would run: git -C %s pull --ff-only\n' "$BEAST_ROOT" >&2
   else
@@ -375,6 +394,37 @@ cmd_uninstall() {
   fi
 }
 
+cmd_config() {
+  local key first=1 secret
+  load_config 2>/dev/null
+  if [ "$BEAST_JSON" = 1 ]; then
+    printf '{"path":%s,"exists":%s,"values":{' "$(json_str "$BEAST_CONFIG")" "$([ -f "$BEAST_CONFIG" ] && echo true || echo false)"
+    for key in $(config_keys); do
+      [ "$first" = 1 ] || printf ','
+      first=0
+      printf '%s:%s' "$(json_str "$key")" "$(json_str "${!key-}")"
+    done
+    printf '},"secrets":{'
+    first=1
+    for secret in TAILSCALE_AUTHKEY TS_API_TOKEN WIFI_PSK; do
+      [ "$first" = 1 ] || printf ','
+      first=0
+      printf '"%s":%s' "$secret" "$([ -n "${!secret:-}" ] && echo true || echo false)"
+    done
+    printf '}}\n'
+    return 0
+  fi
+  if [ -f "$BEAST_CONFIG" ]; then
+    echo "# config: $BEAST_CONFIG"
+  else
+    echo "# config: $BEAST_CONFIG (not created yet: these are the defaults)"
+  fi
+  for key in $(config_keys); do printf '%s=%q\n' "$key" "${!key-}"; done
+  for secret in TAILSCALE_AUTHKEY TS_API_TOKEN WIFI_PSK; do
+    if [ -n "${!secret:-}" ]; then echo "# $secret: set in the environment (hidden)"; else echo "# $secret: not set"; fi
+  done
+}
+
 ENV_VARS="TAILSCALE_AUTHKEY:Tailscale auth key for an unattended login (secret)
 TS_API_TOKEN:Tailscale API token, to disable key expiry (secret)
 WIFI_PSK:Wi-Fi password, if it lived in the desktop keyring (secret)
@@ -389,7 +439,7 @@ EXIT_CODES="0:success (health check: no failures)
 5:sudo needs a password and there is no TTY
 6:another beast run holds the lock"
 
-FLAGS="--dry-run --yes --non-interactive --json --no-color --verbose --config --fix --help"
+FLAGS="--dry-run --yes --non-interactive --json --no-color --verbose --config --host --fix --help"
 
 cmd_describe() {
   local id key val first line
@@ -451,7 +501,7 @@ cmd_describe() {
 # ---------------------------------------------------------------- main
 
 main() {
-  local cmd='' help=0 args=() doctor_args=()
+  local cmd='' help=0 args=() doctor_args=() host_arg=
   while [ $# -gt 0 ]; do
     case $1 in
       -n | --dry-run) BEAST_DRY_RUN=1 ;;
@@ -461,6 +511,12 @@ main() {
       --no-color) BEAST_NO_COLOR=1 ;;
       -v | --verbose) BEAST_VERBOSE=1 ;;
       --fix) BEAST_FIX=1 ;;
+      --host)
+        [ $# -ge 2 ] || usage_error "--host needs a name"
+        host_arg=$2
+        shift
+        ;;
+      --host=*) host_arg=${1#*=} ;;
       --config)
         [ $# -ge 2 ] || usage_error "--config needs a path"
         BEAST_CONFIG=$2
@@ -496,6 +552,9 @@ main() {
     if [ -n "$cmd" ] && [[ " $COMMANDS " == *" $cmd "* ]]; then command_help "$cmd"; else usage; fi
     exit 0
   fi
+  if [ -n "$host_arg" ] && [ "$host_arg" != "$(load_config 2>/dev/null && printf '%s' "$HOST_NAME")" ]; then
+    usage_error "--host $host_arg: this checkout sets up '$(load_config 2>/dev/null && printf '%s' "$HOST_NAME")' (HOST_NAME in $(beast_config_path))"
+  fi
   if [ ${#doctor_args[@]} -gt 0 ] && [ "$cmd" != doctor ]; then
     usage_error "${doctor_args[0]} only works with beast doctor"
   fi
@@ -514,6 +573,7 @@ main() {
     update) cmd_update ${args[@]+"${args[@]}"} ;;
     gui) cmd_gui ${args[@]+"${args[@]}"} ;;
     uninstall) cmd_uninstall ${args[@]+"${args[@]}"} ;;
+    config) cmd_config ;;
     describe) cmd_describe ;;
     __module)
       # Internal: run one module function (see module_call).
