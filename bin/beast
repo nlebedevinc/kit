@@ -1,0 +1,534 @@
+#!/usr/bin/env bash
+# beast: set up and check the beast GPU server. See README.md and AGENTS.md.
+set -euo pipefail
+
+_self=${BASH_SOURCE[0]}
+while [ -L "$_self" ]; do # ~/.local/bin/beast is a symlink into the checkout
+  _dir=$(cd "$(dirname "$_self")" && pwd)
+  _self=$(readlink "$_self")
+  case $_self in /*) ;; *) _self=$_dir/$_self ;; esac
+done
+BEAST_ROOT=$(cd "$(dirname "$_self")/.." && pwd)
+BEAST_BIN="$BEAST_ROOT/bin/beast"
+export BEAST_ROOT
+
+# shellcheck source=../lib/output.sh
+. "$BEAST_ROOT/lib/output.sh"
+# shellcheck source=../lib/common.sh
+. "$BEAST_ROOT/lib/common.sh"
+
+COMMANDS="install plan list doctor update gui uninstall describe"
+
+# ---------------------------------------------------------------- help
+
+usage() {
+  cat <<'EOF'
+Usage: beast [flags] <command> [args]
+
+Commands:
+  install [module...]    Run all modules in order (or only these), then 99-verify
+  plan                   Show what install would do; changes nothing (= install --dry-run)
+  list                   Modules and whether each is applied
+  doctor                 Run the health check (beast-check)
+  update                 git pull this repo, then re-run install
+  gui on|off|start|stop  Desktop fallback: boot to it (on/off) or start/stop it now
+  uninstall <module>     Revert a module (reliability, openrgb, lights)
+  describe               Commands, modules, flags, env vars and exit codes
+
+Flags:
+  -n, --dry-run          Show the actions without changing anything
+  -y, --yes              Accept non-safety confirmations (safety gates still apply)
+      --non-interactive  Never prompt; missing input becomes a manual action
+      --json             Machine-readable output on stdout (NDJSON for install/plan)
+      --fix              nvidia: install the driver if nvidia-smi fails
+      --config PATH      Config file (default ~/.config/beast/beast.conf)
+      --no-color         No colors (also NO_COLOR=1)
+  -v, --verbose          Print every command as it runs
+  -h, --help             Help (also: beast <command> --help)
+
+Exit codes: 0 ok, 1 failed, 2 usage, 3 human action required, 4 blocked by a
+safety gate, 5 sudo needs a password, 6 another run holds the lock.
+EOF
+}
+
+command_help() {
+  case $1 in
+    install)
+      cat <<'EOF'
+Usage: beast install [module...] [--dry-run] [--yes] [--non-interactive] [--json] [--fix]
+
+Runs 00-preflight, the modules (all of them, or the ones named, e.g. tailscale ssh),
+then 99-verify, which runs the health check. A module that is already applied
+reports "already" and changes nothing.
+
+Asks before switching to headless (interactive). Non-interactive, headless needs
+--yes and every safety gate passed. Never reboots.
+
+Secrets come from the environment only: TAILSCALE_AUTHKEY, TS_API_TOKEN, WIFI_PSK.
+
+Exit: 0 ok, 1 a module or health check failed, 3 manual actions pending,
+4 blocked by a safety gate, 5 sudo needs a password, 6 locked.
+EOF
+      ;;
+    plan) echo "Usage: beast plan [module...] [--json]: what install would do, without changing anything." ;;
+    list) echo "Usage: beast list [--json]: each module and whether it's applied (its check)." ;;
+    doctor)
+      cat <<'EOF'
+Usage: beast doctor [--json] [--strict] [--section NAME] [--ascii] [--no-color]
+
+Runs beast-check, the health check. Sections: hardware storage stability network
+services client. --strict: warnings also fail (exit 3). Exit 1 on any failure.
+EOF
+      ;;
+    update) echo "Usage: beast update [install flags]: git pull --ff-only, then beast install." ;;
+    gui)
+      cat <<'EOF'
+Usage: beast gui on|off|start|stop
+
+  on     boot to the desktop (graphical.target)
+  off    boot to the command line (multi-user.target); same safety gate as headless
+  start  start the desktop now (gdm)
+  stop   stop it
+EOF
+      ;;
+    uninstall) echo "Usage: beast uninstall <module> [--yes]: revert reliability, openrgb or lights. Shows what will be removed first." ;;
+    describe) echo "Usage: beast describe [--json]: commands, flags, modules, env vars, config keys and exit codes." ;;
+  esac
+}
+
+usage_error() {
+  err "$1 (see beast --help)"
+  exit "$EXIT_USAGE"
+}
+
+# ---------------------------------------------------------------- modules
+
+module_ids() {
+  local f
+  for f in "$BEAST_ROOT"/modules/[0-9][0-9]-*.sh; do
+    f=${f##*/}
+    printf '%s\n' "${f%.sh}"
+  done
+}
+
+# resolve_module NAME: "tailscale" or "30-tailscale" → 30-tailscale
+resolve_module() {
+  local id
+  for id in $(module_ids); do
+    if [ "$1" = "$id" ] || [ "$1" = "${id#[0-9][0-9]-}" ]; then
+      printf '%s\n' "$id"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# module_call ID FUNC: run one module function in a child process (so set -e works
+# inside modules and their variables don't leak).
+module_call() { bash "$BEAST_BIN" __module "$1" "$2"; }
+
+module_has() { grep -q "^$2()" "$BEAST_ROOT/modules/$1.sh"; }
+
+module_describe() { module_call "$1" describe 2>/dev/null || true; }
+
+# module_check_status ID: applied | not-applied | skipped
+module_check_status() {
+  local rc=0
+  module_call "$1" check >/dev/null 2>&1 || rc=$?
+  case $rc in
+    0) echo applied ;;
+    "$MOD_SKIPPED") echo skipped ;;
+    *) echo not-applied ;;
+  esac
+}
+
+# ---------------------------------------------------------------- install / plan
+
+N_FAILED=0 N_BLOCKED=0
+
+_message() {
+  local m=''
+  if [ -s "$BEAST_RUN_DIR/message" ]; then m=$(cat "$BEAST_RUN_DIR/message"); fi
+  printf '%s' "${m:-$1}"
+}
+
+# run_module ID: run one module and emit its event.
+run_module() {
+  local id=$1 rc=0 desc status actions=()
+  : >"$BEAST_RUN_DIR/message"
+  desc=$(module_describe "$id")
+
+  module_call "$id" check >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = "$MOD_SKIPPED" ]; then
+    emit_module "$id" skipped "$(_message "$desc")"
+    return 0
+  fi
+  if [ "$rc" = 0 ] && [ "$id" != 99-verify ]; then
+    emit_module "$id" already "$(_message "$desc")"
+    return 0
+  fi
+  local was_applied=$rc
+
+  if [ "$BEAST_DRY_RUN" = 1 ]; then
+    local line
+    while IFS= read -r line; do
+      [ -z "$line" ] || actions+=("$line")
+    done < <(module_call "$id" plan || true)
+    : >"$BEAST_RUN_DIR/message"
+    emit_module "$id" planned "$desc" ${actions[@]+"${actions[@]}"}
+    return 0
+  fi
+
+  [ "$BEAST_JSON" = 1 ] || step "$id: $desc"
+  rc=0
+  module_call "$id" apply >&2 || rc=$?
+  if [ "$rc" = 0 ] && module_has "$id" verify && ! module_call "$id" verify >&2; then
+    err "$id: applied, but its verify failed (see: beast doctor)"
+    rc=1
+  fi
+  case $rc in
+    0)
+      if [ "$id" = 99-verify ] && [ "$was_applied" = 0 ]; then status=already; else status=applied; fi
+      ;;
+    "$MOD_SKIPPED") status=skipped ;;
+    "$MOD_MANUAL") status=manual ;;
+    "$MOD_BLOCKED")
+      status=blocked
+      N_BLOCKED=$((N_BLOCKED + 1))
+      ;;
+    *)
+      status=failed
+      N_FAILED=$((N_FAILED + 1))
+      ;;
+  esac
+  emit_module "$id" "$status" "$(_message "$desc")"
+}
+
+# doctor_count KEY: pass/warn/fail from the health check run by 99-verify.
+doctor_count() {
+  sed -n "s/.*\"summary\":{[^}]*\"$1\":\([0-9]*\).*/\1/p" "$BEAST_RUN_DIR/doctor.json" 2>/dev/null | head -n 1
+}
+
+emit_summary() {
+  local code=0 manual='' reboot=false doctor=null ok=true dfail=0
+  if [ -s "$BEAST_RUN_DIR/manual" ]; then manual=$(paste -sd, "$BEAST_RUN_DIR/manual"); fi
+  if [ -f "$BEAST_RUN_DIR/reboot" ]; then reboot=true; fi
+  if [ -s "$BEAST_RUN_DIR/doctor.json" ]; then
+    dfail=$(doctor_count fail)
+    doctor="{\"pass\":$(doctor_count pass),\"warn\":$(doctor_count warn),\"fail\":${dfail:-0}}"
+  fi
+  if [ "$BEAST_DRY_RUN" != 1 ]; then
+    if [ "$N_FAILED" -gt 0 ] || [ "${dfail:-0}" -gt 0 ]; then
+      code=$EXIT_FAIL
+    elif [ "$N_BLOCKED" -gt 0 ]; then
+      code=$EXIT_BLOCKED
+    elif [ -n "$manual" ]; then
+      code=$EXIT_MANUAL
+    fi
+  fi
+  [ "$code" = 0 ] || ok=false
+
+  if [ "$BEAST_JSON" = 1 ]; then
+    printf '{"type":"summary","ok":%s,"exit_code":%s,"reboot_required":%s,"manual_actions":[%s],"doctor":%s}\n' \
+      "$ok" "$code" "$reboot" "$manual" "$doctor"
+  else
+    log ""
+    if [ "$BEAST_DRY_RUN" = 1 ]; then
+      log "${C_BOLD}Plan only: nothing was changed.${C_RESET}"
+    elif [ "$code" = 0 ]; then
+      log "${C_GREEN}${C_BOLD}Done.${C_RESET}"
+    else
+      log "${C_BOLD}Finished with exit code $code.${C_RESET}"
+    fi
+    if [ "$doctor" != null ]; then
+      log "Health check: $(doctor_count pass) passed, $(doctor_count warn) warnings, ${dfail:-0} failed (details: beast doctor)"
+    fi
+    if [ -s "$BEAST_RUN_DIR/manual" ]; then
+      log "${C_YELLOW}Manual actions:${C_RESET}"
+      sed 's/^/  - /' "$BEAST_RUN_DIR/manual.txt" >&2
+    fi
+    if [ "$reboot" = true ]; then log "${C_YELLOW}Reboot required${C_RESET} to finish (beast never reboots): sudo reboot"; fi
+  fi
+  return "$code"
+}
+
+# preflight: what 00-preflight needs in this process (the lock lives on our fd 9).
+preflight() {
+  require_not_root
+  mkdir -p "$BEAST_STATE_DIR"
+  take_lock
+  ensure_sudo
+  local id ver
+  id=$(os_release_value ID)
+  ver=$(os_release_value VERSION_ID)
+  case "$id $ver" in
+    "ubuntu 24.04" | "ubuntu 26.04") ;;
+    *) warn "this is ${id:-an unknown OS} ${ver}, not Ubuntu 24.04 or 26.04; continuing anyway" ;;
+  esac
+  if [ "$BEAST_DRY_RUN" != 1 ]; then _log_file "beast install $* (session: $(is_ssh_session && echo ssh || echo local), $(interactive && echo interactive || echo non-interactive))"; fi
+}
+
+cmd_install() {
+  local ids=() name id selected=''
+  for name in "$@"; do
+    id=$(resolve_module "$name") || usage_error "unknown module: $name (see beast list)"
+    selected="$selected $id"
+  done
+  preflight "$@"
+  ids+=(00-preflight)
+  for id in $(module_ids); do
+    case $id in 00-preflight | 99-verify) continue ;; esac
+    if [ -z "$selected" ] || [[ " $selected " == *" $id "* ]]; then ids+=("$id"); fi
+  done
+  ids+=(99-verify)
+
+  if [ "$BEAST_JSON" != 1 ]; then
+    if [ "$BEAST_DRY_RUN" = 1 ]; then step "beast plan"; else step "beast install"; fi
+  fi
+  for id in "${ids[@]}"; do run_module "$id"; done
+  emit_summary
+}
+
+# ---------------------------------------------------------------- other commands
+
+cmd_list() {
+  local id status first=1
+  if [ "$BEAST_JSON" = 1 ]; then printf '{"modules":['; fi
+  for id in $(module_ids); do
+    status=$(module_check_status "$id")
+    if [ "$BEAST_JSON" = 1 ]; then
+      [ "$first" = 1 ] || printf ','
+      first=0
+      printf '{"id":%s,"description":%s,"status":%s}' "$(json_str "$id")" "$(json_str "$(module_describe "$id")")" "$(json_str "$status")"
+    else
+      printf '%-18s %-12s %s\n' "$id" "$status" "$(module_describe "$id")"
+    fi
+  done
+  if [ "$BEAST_JSON" = 1 ]; then printf ']}\n'; fi
+}
+
+cmd_doctor() {
+  local args=("$@")
+  [ "$BEAST_JSON" != 1 ] || args+=(--json)
+  [ "$BEAST_NO_COLOR" != 1 ] || args+=(--no-color)
+  if [ -r "$(beast_config_path)" ]; then args+=(--config "$(beast_config_path)"); fi
+  exec bash "$BEAST_ROOT/bin/beast-check" ${args[@]+"${args[@]}"}
+}
+
+cmd_update() {
+  require_not_root
+  if [ "$BEAST_DRY_RUN" = 1 ]; then
+    printf 'would run: git -C %s pull --ff-only\n' "$BEAST_ROOT" >&2
+  else
+    step "Updating $BEAST_ROOT"
+    git -C "$BEAST_ROOT" pull --ff-only >&2 || die "git pull failed. Sort out $BEAST_ROOT with git, then run beast update again."
+  fi
+  exec bash "$BEAST_BIN" install "$@"
+}
+
+cmd_gui() {
+  [ $# -eq 1 ] || usage_error "beast gui on|off|start|stop"
+  require_not_root
+  take_lock
+  ensure_sudo
+  case $1 in
+    on) run_sudo systemctl set-default graphical.target ;;
+    off)
+      headless_gate || exit "$EXIT_BLOCKED"
+      run_sudo systemctl set-default multi-user.target
+      ;;
+    start) run_sudo systemctl start gdm ;;
+    stop) run_sudo systemctl stop gdm ;;
+    *) usage_error "beast gui on|off|start|stop" ;;
+  esac
+}
+
+cmd_uninstall() {
+  [ $# -eq 1 ] || usage_error "beast uninstall <module>"
+  local id rc=0
+  id=$(resolve_module "$1") || usage_error "unknown module: $1"
+  module_has "$id" uninstall || usage_error "$id can't be uninstalled (only reliability, openrgb and lights)"
+  require_not_root
+  take_lock
+  # Rule 6: show what will be removed first.
+  step "beast uninstall $id would:"
+  BEAST_DRY_RUN=1 module_call "$id" uninstall | sed 's/^/    /' >&2
+  [ "$BEAST_DRY_RUN" != 1 ] || exit 0
+  if ! confirm "Go ahead?"; then
+    if interactive; then
+      info "Nothing changed."
+      exit 0
+    fi
+    err "Not confirmed. Re-run with --yes to uninstall $id."
+    exit "$EXIT_MANUAL"
+  fi
+  ensure_sudo
+  BEAST_RUN_DIR=$(mktemp -d)
+  export BEAST_RUN_DIR
+  module_call "$id" uninstall >&2 || rc=$?
+  rm -rf "$BEAST_RUN_DIR"
+  if [ "$rc" = 0 ]; then
+    emit_module "$id" applied "uninstalled"
+  else
+    emit_module "$id" failed "uninstall failed"
+    exit "$EXIT_FAIL"
+  fi
+}
+
+ENV_VARS="TAILSCALE_AUTHKEY:Tailscale auth key for an unattended login (secret)
+TS_API_TOKEN:Tailscale API token, to disable key expiry (secret)
+WIFI_PSK:Wi-Fi password, if it lived in the desktop keyring (secret)
+BEAST_NONINTERACTIVE:1 = never prompt (same as --non-interactive)
+NO_COLOR:any value = no colors"
+
+EXIT_CODES="0:success (health check: no failures)
+1:a step or a health check failed
+2:usage error
+3:human action required
+4:blocked by a safety gate
+5:sudo needs a password and there is no TTY
+6:another beast run holds the lock"
+
+FLAGS="--dry-run --yes --non-interactive --json --no-color --verbose --config --fix --help"
+
+cmd_describe() {
+  local id key val first line
+  if [ "$BEAST_JSON" != 1 ]; then
+    usage
+    echo
+    echo "Modules:"
+    for id in $(module_ids); do printf '  %-18s %-12s %s\n' "$id" "$(module_check_status "$id")" "$(module_describe "$id")"; done
+    echo
+    echo "Environment:"
+    printf '%s\n' "$ENV_VARS" | awk -F: '{ printf "  %-22s %s\n", $1, $2 }'
+    echo
+    echo "Config keys ($(beast_config_path)):"
+    sed -n 's/^\([A-Z][A-Z0-9_]*=.*\)/  \1/p' "$BEAST_ROOT/config/beast.conf.example"
+    return 0
+  fi
+  printf '{"name":"beast","commands":['
+  first=1
+  for key in $COMMANDS; do
+    [ "$first" = 1 ] || printf ','
+    first=0
+    printf '{"name":%s,"help":%s}' "$(json_str "$key")" "$(json_str "$(command_help "$key")")"
+  done
+  # shellcheck disable=SC2086  # word list
+  printf '],"flags":%s,"modules":[' "$(json_arr $FLAGS)"
+  first=1
+  for id in $(module_ids); do
+    [ "$first" = 1 ] || printf ','
+    first=0
+    printf '{"id":%s,"description":%s,"status":%s,"uninstall":%s}' "$(json_str "$id")" \
+      "$(json_str "$(module_describe "$id")")" "$(json_str "$(module_check_status "$id")")" \
+      "$(module_has "$id" uninstall && echo true || echo false)"
+  done
+  printf '],"env":['
+  first=1
+  while IFS=: read -r key val; do
+    [ "$first" = 1 ] || printf ','
+    first=0
+    printf '{"name":%s,"description":%s}' "$(json_str "$key")" "$(json_str "$val")"
+  done <<<"$ENV_VARS"
+  printf '],"config":{"path":%s,"keys":[' "$(json_str "$(beast_config_path)")"
+  first=1
+  while IFS= read -r line; do
+    [[ $line =~ ^([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+    [ "$first" = 1 ] || printf ','
+    first=0
+    printf '{"name":%s,"default":%s}' "$(json_str "${BASH_REMATCH[1]}")" "$(json_str "$(_config_value "${BASH_REMATCH[2]}")")"
+  done <"$BEAST_ROOT/config/beast.conf.example"
+  printf ']},"exit_codes":['
+  first=1
+  while IFS=: read -r key val; do
+    [ "$first" = 1 ] || printf ','
+    first=0
+    printf '{"code":%s,"meaning":%s}' "$key" "$(json_str "$val")"
+  done <<<"$EXIT_CODES"
+  printf ']}\n'
+}
+
+# ---------------------------------------------------------------- main
+
+main() {
+  local cmd='' help=0 args=() doctor_args=()
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -n | --dry-run) BEAST_DRY_RUN=1 ;;
+      -y | --yes) BEAST_YES=1 ;;
+      --non-interactive) BEAST_NONINTERACTIVE=1 ;;
+      --json) BEAST_JSON=1 ;;
+      --no-color) BEAST_NO_COLOR=1 ;;
+      -v | --verbose) BEAST_VERBOSE=1 ;;
+      --fix) BEAST_FIX=1 ;;
+      --config)
+        [ $# -ge 2 ] || usage_error "--config needs a path"
+        BEAST_CONFIG=$2
+        shift
+        ;;
+      --config=*) BEAST_CONFIG=${1#*=} ;;
+      --strict | --ascii) doctor_args+=("$1") ;;
+      --section)
+        [ $# -ge 2 ] || usage_error "--section needs a name"
+        doctor_args+=(--section "$2")
+        shift
+        ;;
+      -h | --help) help=1 ;;
+      --)
+        shift
+        args+=("$@")
+        break
+        ;;
+      -*) usage_error "unknown flag: $1" ;;
+      *) if [ -z "$cmd" ]; then cmd=$1; else args+=("$1"); fi ;;
+    esac
+    shift
+  done
+  if ! [ -t 0 ]; then BEAST_NONINTERACTIVE=1; fi
+  if [ -n "${BEAST_CONFIG:-}" ] && [ ! -r "$BEAST_CONFIG" ] && [ "$cmd" != install ] && [ "$cmd" != plan ]; then
+    usage_error "config file not found: $BEAST_CONFIG"
+  fi
+  export BEAST_DRY_RUN BEAST_YES BEAST_NONINTERACTIVE BEAST_JSON BEAST_NO_COLOR BEAST_VERBOSE BEAST_FIX
+  [ -z "${BEAST_CONFIG:-}" ] || export BEAST_CONFIG
+  color_init
+
+  if [ "$help" = 1 ]; then
+    if [ -n "$cmd" ] && [[ " $COMMANDS " == *" $cmd "* ]]; then command_help "$cmd"; else usage; fi
+    exit 0
+  fi
+  if [ ${#doctor_args[@]} -gt 0 ] && [ "$cmd" != doctor ]; then
+    usage_error "${doctor_args[0]} only works with beast doctor"
+  fi
+
+  case $cmd in
+    install | plan)
+      [ "$cmd" = install ] || BEAST_DRY_RUN=1
+      export BEAST_DRY_RUN
+      BEAST_RUN_DIR=$(mktemp -d)
+      export BEAST_RUN_DIR
+      trap 'rm -rf "$BEAST_RUN_DIR"' EXIT
+      cmd_install ${args[@]+"${args[@]}"}
+      ;;
+    list) cmd_list ;;
+    doctor) cmd_doctor ${doctor_args[@]+"${doctor_args[@]}"} ;;
+    update) cmd_update ${args[@]+"${args[@]}"} ;;
+    gui) cmd_gui ${args[@]+"${args[@]}"} ;;
+    uninstall) cmd_uninstall ${args[@]+"${args[@]}"} ;;
+    describe) cmd_describe ;;
+    __module)
+      # Internal: run one module function (see module_call).
+      load_config
+      # shellcheck source=/dev/null
+      . "$BEAST_ROOT/modules/${args[0]}.sh"
+      declare -F "${args[1]}" >/dev/null || exit 127
+      "${args[1]}"
+      ;;
+    '')
+      usage >&2
+      exit "$EXIT_USAGE"
+      ;;
+    *) usage_error "unknown command: $cmd" ;;
+  esac
+}
+
+main "$@"
