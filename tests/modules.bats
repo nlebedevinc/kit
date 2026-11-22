@@ -69,6 +69,18 @@ status_of() { printf '%s\n' "$output" | grep "\"id\":\"$1\"" | jq -r .status; }
   [[ "$output" != *tskey-api-TESTONLY* ]]
 }
 
+@test "tailscale: starts tailscaled when it isn't running" {
+  run env STUB_INACTIVE=tailscaled STUB_TS_STATE=NeedsLogin STUB_TS_AUTHURL=https://login.tailscale.com/a/x \
+    bash "$REPO_ROOT/bin/beast" install tailscale --json </dev/null
+  grep -q 'systemctl enable --now tailscaled' "$STATE/calls"
+}
+
+@test "tailscale: no login link from tailscale up is a failure, not a vague manual step" {
+  run env STUB_TS_STATE=NeedsLogin bash "$REPO_ROOT/bin/beast" install tailscale --json </dev/null
+  [ "$(status_of 30-tailscale)" = failed ]
+  [[ "$output" == *"gave no login link"* ]]
+}
+
 @test "reliability: writes the log's files and applies them without a reboot" {
   run env STUB_WATCHDOG=0 STUB_PANIC=0 bash "$REPO_ROOT/bin/beast" install reliability --json </dev/null
   cmp "$REPO_ROOT/config/systemd/watchdog.conf" "$FAKEROOT/etc/systemd/system.conf.d/watchdog.conf"

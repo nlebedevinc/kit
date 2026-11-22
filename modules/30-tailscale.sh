@@ -44,7 +44,11 @@ login() {
     out=$(sudo tailscale up --timeout=15s 2>&1 </dev/null || true)
     url=$(printf '%s\n' "$out" | grep -Eo 'https://login\.tailscale\.com/[^[:space:]]+' | head -n 1)
     [ -n "$url" ] || url=$(ts_field AuthURL)
-    manual_action tailscale.login "Open this link and sign in to Tailscale, then run beast install tailscale again: ${url:-run sudo tailscale up}" "$url"
+    if [ -z "$url" ]; then
+      err "tailscale up gave no login link: $out"
+      return 1
+    fi
+    manual_action tailscale.login "Open this link and sign in to Tailscale, then run beast install tailscale again: $url" "$url"
     module_message "waiting for the Tailscale login"
     return "$MOD_MANUAL"
   fi
@@ -76,6 +80,10 @@ apply() {
   if ! have tailscale; then
     info "Installing Tailscale ($INSTALL_URL)"
     curl -fsSL --max-time 120 "$INSTALL_URL" | sh
+  fi
+  # The package enables tailscaled; make sure it's also running before logging in.
+  if [ "$(systemctl is-active tailscaled 2>/dev/null)" != active ]; then
+    run_sudo systemctl enable --now tailscaled
   fi
   running || login || return $?
   if [ -n "$(ts_field Self.KeyExpiry)" ]; then disable_expiry || return $?; fi
