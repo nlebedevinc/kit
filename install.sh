@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # beast bootstrap:
 #
-#   curl -fsSL https://raw.githubusercontent.com/nlebedevinc/beast/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash
 #
 # Installs git and curl if missing, clones (or fast-forwards) this repo into
 # ~/.local/share/beast, links ~/.local/bin/beast, then runs `beast install` with
@@ -14,7 +14,7 @@
 main() {
   set -euo pipefail
 
-  local repo=${BEAST_REPO:-nlebedevinc/beast}
+  local repo=${BEAST_REPO:-nlebedevinc/kit}
   local ref=${BEAST_REF:-main}
   local path=${BEAST_PATH:-}
   local bindir="$HOME/.local/bin"

@@ -63,7 +63,7 @@ piped_install() { bash -s -- "$@" <"$REPO_ROOT/install.sh"; }
   [[ "$output" == *"beast-called: install --dry-run"* ]]
 }
 
-@test "the default repo is github.com/nlebedevinc/beast" {
+@test "the default repo is github.com/nlebedevinc/kit" {
   # shellcheck disable=SC2016  # a literal line of install.sh
-  grep -q 'local repo=${BEAST_REPO:-nlebedevinc/beast}' "$REPO_ROOT/install.sh"
+  grep -q 'local repo=${BEAST_REPO:-nlebedevinc/kit}' "$REPO_ROOT/install.sh"
 }

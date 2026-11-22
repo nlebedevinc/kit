@@ -17,6 +17,6 @@ If the agent runs commands over SSH, it should use `ssh -t`, or you run `sudo -v
 
 ## The prompt
 
-> Install the beast server setup on `beast` from `https://github.com/nlebedevinc/beast`. Read `AGENTS.md` first. Run `beast plan --json` and show me the plan before changing anything. Then install with `--non-interactive --json`, relay every manual action to me, never reboot, and finish with `beast doctor --json`, summarizing any warnings or failures.
+> Install the beast server setup on `beast` from `https://github.com/nlebedevinc/kit`. Read `AGENTS.md` first. Run `beast plan --json` and show me the plan before changing anything. Then install with `--non-interactive --json`, relay every manual action to me, never reboot, and finish with `beast doctor --json`, summarizing any warnings or failures.
 
 Going headless needs `--yes` in non-interactive mode, and only happens once Tailscale is running and SSH works. Tell the agent explicitly if you want that step.

@@ -14,7 +14,7 @@ Scripts that turn a fresh Ubuntu Desktop into my headless GPU server, reached ov
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/nlebedevinc/beast/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash
 ```
 
 This clones the repo to `~/.local/share/beast`, adds `beast` to `~/.local/bin` and runs `beast install`. To see what it would do first, add `-s -- --dry-run` after `bash`.
@@ -22,7 +22,7 @@ This clones the repo to `~/.local/share/beast`, adds `beast` to `~/.local/bin` a
 To read the code before running it:
 
 ```sh
-git clone https://github.com/nlebedevinc/beast.git ~/.local/share/beast
+git clone https://github.com/nlebedevinc/kit.git ~/.local/share/beast
 ~/.local/share/beast/install.sh
 ```
 
@@ -54,8 +54,9 @@ beast install tailscale    # one module (plus preflight and the health check)
 beast plan                 # what install would do; changes nothing
 beast list                 # what's applied
 beast doctor               # the health check
-beast update               # git pull, then install
-beast uninstall lights     # undo reliability, openrgb or lights
+beast update               # git pull, system upgrade, then install
+beast uninstall lights     # undo reliability, headless, openrgb or lights
+beast config               # the settings in effect (secrets hidden)
 beast gui start            # the desktop, until the next boot (gui on: for good)
 ```
 
@@ -68,6 +69,15 @@ lights off                 # also: on, 00AAFF, status, detect
 ```
 
 Settings live in `~/.config/beast/beast.conf`; the defaults match this machine. See [config/beast.conf.example](config/beast.conf.example).
+
+## Coming from kit
+
+This repo used to install a `kit` command. Everything its install did still works; the command is now `beast`:
+
+- The old one-liner's `--host beast` is still accepted.
+- Settings in `~/.config/kit/kit.conf` are copied into `~/.config/beast/beast.conf` on the first run.
+- `kit-lights` and `kit-lights-off.service` are replaced by `lights` and `lights-off.service` (after asking).
+- `kit update`, `kit config` and `kit uninstall headless` are `beast update`, `beast config` and `beast uninstall headless`.
 
 ## Safety
 
