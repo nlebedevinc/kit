@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "describe.schema.json",
+  "title": "beast describe --json",
+  "type": "object",
+  "required": ["name", "commands", "flags", "modules", "env", "config", "exit_codes"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {"const": "beast"},
+    "commands": {"type": "array", "items": {"type": "object", "required": ["name", "help"], "additionalProperties": false,
+      "properties": {"name": {"type": "string"}, "help": {"type": "string"}}}},
+    "flags": {"type": "array", "items": {"type": "string", "pattern": "^--"}},
+    "modules": {"type": "array", "items": {"type": "object", "required": ["id", "description", "status", "uninstall"], "additionalProperties": false,
+      "properties": {"id": {"type": "string"}, "description": {"type": "string"},
+        "status": {"enum": ["applied", "not-applied", "skipped"]}, "uninstall": {"type": "boolean"}}}},
+    "env": {"type": "array", "items": {"type": "object", "required": ["name", "description"], "additionalProperties": false,
+      "properties": {"name": {"type": "string"}, "description": {"type": "string"}}}},
+    "config": {"type": "object", "required": ["path", "keys"], "additionalProperties": false,
+      "properties": {"path": {"type": "string"}, "keys": {"type": "array", "items": {"type": "object", "required": ["name", "default"], "additionalProperties": false,
+        "properties": {"name": {"type": "string"}, "default": {"type": "string"}}}}}},
+    "exit_codes": {"type": "array", "items": {"type": "object", "required": ["code", "meaning"], "additionalProperties": false,
+      "properties": {"code": {"type": "integer"}, "meaning": {"type": "string"}}}}
+  }
+}

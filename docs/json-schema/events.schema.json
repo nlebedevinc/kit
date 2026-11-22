@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "events.schema.json",
+  "title": "One line of beast install --json / beast plan --json (NDJSON)",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["type", "id", "status", "message", "actions"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "module"},
+        "id": {"type": "string", "pattern": "^[0-9]{2}-[a-z-]+$"},
+        "status": {"enum": ["applied", "already", "skipped", "failed", "blocked", "manual", "planned"]},
+        "message": {"type": "string"},
+        "actions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type", "ok", "exit_code", "reboot_required", "manual_actions", "doctor"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "summary"},
+        "ok": {"type": "boolean"},
+        "exit_code": {"enum": [0, 1, 2, 3, 4, 5, 6]},
+        "reboot_required": {"type": "boolean"},
+        "manual_actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "instruction"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {"type": "string"},
+              "instruction": {"type": "string"},
+              "url": {"type": "string"}
+            }
+          }
+        },
+        "doctor": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": ["pass", "warn", "fail"],
+              "additionalProperties": false,
+              "properties": {
+                "pass": {"type": "integer", "minimum": 0},
+                "warn": {"type": "integer", "minimum": 0},
+                "fail": {"type": "integer", "minimum": 0}
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

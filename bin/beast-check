@@ -1,0 +1,399 @@
+#!/usr/bin/env bash
+# beast-check: one-shot health report for the beast server (SPEC §7).
+# Usage: beast-check [--json] [--strict] [--section NAME] [--ascii] [--no-color] [--config PATH]
+#        (re-runs itself with sudo when needed)
+# Standalone on purpose: installed to /usr/local/bin, it works without the repo.
+# No `set -e`: it must keep going after a failed check.
+set -u
+export SYSTEMD_PAGER="" PAGER=cat LC_ALL=C
+
+SECTIONS="hardware storage stability network services client"
+
+usage() {
+  cat <<'EOF'
+Usage: beast-check [--json] [--strict] [--section NAME] [--ascii] [--no-color] [--config PATH]
+
+  --json           one JSON document on stdout instead of the table
+  --strict         warnings also count: exit 3 if there are any
+  --section NAME   only this section: hardware storage stability network services client
+  --ascii          OK / WARN / FAIL / SKIP instead of ✔ / ! / ✘ / -
+  --no-color       no colors (also NO_COLOR=1; off when stdout isn't a terminal)
+  --config PATH    config file (default ~/.config/beast/beast.conf)
+
+Exit codes: 0 no failures, 1 any failure, 2 usage, 3 warnings with --strict,
+5 sudo needs a password and there's no terminal.
+EOF
+}
+
+JSON=0 STRICT=0 SECTION='' ASCII=0 NOCOLOR=0 CONFIG='' SUDOED=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --json) JSON=1 ;;
+    --strict) STRICT=1 ;;
+    --ascii) ASCII=1 ;;
+    --no-color) NOCOLOR=1 ;;
+    --section)
+      [ $# -ge 2 ] || { usage >&2; exit 2; }
+      SECTION=$2
+      shift
+      ;;
+    --config)
+      [ $# -ge 2 ] || { usage >&2; exit 2; }
+      CONFIG=$2
+      shift
+      ;;
+    --sudoed) SUDOED=1 ;; # internal: already re-run through sudo
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'beast-check: unknown argument: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+if [ -n "$SECTION" ] && [[ " $SECTIONS " != *" $SECTION "* ]]; then
+  printf 'beast-check: unknown section: %s (one of: %s)\n' "$SECTION" "$SECTIONS" >&2
+  exit 2
+fi
+
+# The user's config, resolved before sudo changes HOME.
+user_home() {
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+    getent passwd "$SUDO_USER" | cut -d: -f6
+  else
+    printf '%s' "$HOME"
+  fi
+}
+if [ -z "$CONFIG" ]; then
+  if [ -n "${BEAST_CONFIG:-}" ]; then CONFIG=$BEAST_CONFIG; else CONFIG="$(user_home)/.config/beast/beast.conf"; fi
+fi
+
+if [ "$(id -u)" -ne 0 ] && [ "$SUDOED" = 0 ]; then
+  if [ "${BEAST_NONINTERACTIVE:-0}" = 1 ] || ! [ -t 0 ]; then
+    if ! sudo -n true 2>/dev/null; then
+      echo "beast-check: sudo needs a password and there's no terminal. Run \`sudo -v\` in this session first, or connect with \`ssh -t\`." >&2
+      exit 5
+    fi
+  fi
+  args=(--sudoed)
+  [ ! -r "$CONFIG" ] || args+=(--config "$CONFIG")
+  [ "$JSON" = 0 ] || args+=(--json)
+  [ "$STRICT" = 0 ] || args+=(--strict)
+  [ "$ASCII" = 0 ] || args+=(--ascii)
+  [ -z "$SECTION" ] || args+=(--section "$SECTION")
+  if [ "$NOCOLOR" = 1 ] || [ -n "${NO_COLOR:-}" ]; then args+=(--no-color); fi
+  exec sudo "$0" "${args[@]}"
+fi
+
+# ---------------------------------------------------------------- config (parsed, never sourced: we're root)
+
+HOST_NAME=beast HOST_USER=me RAM_EXPECTED_STICKS=2 RAM_MAX_MTS=5600 LIGHTS_BOOT=off
+if [ -r "$CONFIG" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ $line =~ ^[[:space:]]*(HOST_NAME|HOST_USER|RAM_EXPECTED_STICKS|RAM_MAX_MTS|LIGHTS_BOOT)=[[:space:]]*[\"\']?([^\"\'#[:space:]]*) ]] || continue
+    printf -v "${BASH_REMATCH[1]}" '%s' "${BASH_REMATCH[2]}"
+  done <"$CONFIG"
+fi
+case $RAM_EXPECTED_STICKS in '' | *[!0-9]*) RAM_EXPECTED_STICKS=2 ;; esac
+case $RAM_MAX_MTS in '' | *[!0-9]*) RAM_MAX_MTS=5600 ;; esac
+
+# ---------------------------------------------------------------- output
+
+if [ -t 1 ] && [ "$NOCOLOR" = 0 ] && [ -z "${NO_COLOR:-}" ] && [ "$JSON" = 0 ]; then
+  G=$'\e[32m' Y=$'\e[33m' R=$'\e[31m' B=$'\e[1m' D=$'\e[2m' N=$'\e[0m'
+else
+  G='' Y='' R='' B='' D='' N=''
+fi
+if [ "$ASCII" = 1 ]; then
+  M_OK='OK  ' M_WARN='WARN' M_FAIL='FAIL' M_SKIP='SKIP'
+else
+  M_OK='✔' M_WARN='!' M_FAIL='✘' M_SKIP='-'
+fi
+
+PASS=0 WARN=0 FAIL=0 SKIP=0 CUR='' CHECKS=''
+
+json_str() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\t'/ }
+  s=${s//$'\n'/ }
+  s=$(printf '%s' "$s" | tr -d '\000-\037')
+  printf '"%s"' "$s"
+}
+
+# record STATUS ID LABEL MESSAGE [FIX]
+record() {
+  local st=$1 id=$2 label=$3 msg=$4 fix=${5:-} mark color text
+  case $st in
+    pass) PASS=$((PASS + 1)) mark=$M_OK color=$G ;;
+    warn) WARN=$((WARN + 1)) mark=$M_WARN color=$Y ;;
+    fail) FAIL=$((FAIL + 1)) mark=$M_FAIL color=$R ;;
+    skip) SKIP=$((SKIP + 1)) mark=$M_SKIP color=$D ;;
+  esac
+  if [ "$JSON" = 1 ]; then
+    CHECKS="$CHECKS${CHECKS:+,
+}{\"id\":$(json_str "$id"),\"section\":$(json_str "$CUR"),\"status\":\"$st\",\"message\":$(json_str "$msg")"
+    [ -z "$fix" ] || CHECKS="$CHECKS,\"fix\":$(json_str "$fix")"
+    CHECKS="$CHECKS}"
+  else
+    text=$msg
+    [ -z "$fix" ] || text="$msg - $fix"
+    printf '  %s%s%s %-28s %s\n' "$color" "$mark" "$N" "$label" "$text"
+  fi
+}
+ok() { record pass "$@"; }
+warn() { record warn "$@"; }
+bad() { record fail "$@"; }
+skip() { record skip "$@"; }
+
+# want SECTION TITLE: run this section? Prints its heading.
+want() {
+  [ -z "$SECTION" ] || [ "$SECTION" = "$1" ] || return 1
+  CUR=$1
+  [ "$JSON" = 1 ] || printf '\n%s%s%s\n' "$B" "$2" "$N"
+}
+have() { command -v "$1" >/dev/null 2>&1; }
+MEMINFO=${BEAST_MEMINFO:-/proc/meminfo}
+OS_RELEASE=${BEAST_OS_RELEASE:-/etc/os-release}
+
+if [ "$JSON" = 0 ]; then
+  printf '%sbeast-check%s  %s  |  up %s  |  kernel %s\n' "$B" "$N" "$(date '+%F %T %Z')" "$(uptime -p | sed 's/^up //')" "$(uname -r)"
+fi
+
+# ---------------------------------------------------------------- hardware
+if want hardware "Hardware"; then
+  mem_gb=$(awk '/MemTotal/ {printf "%.0f", $2/1048576}' "$MEMINFO")
+  dimms=$(dmidecode -t memory 2>/dev/null | grep -cE '^\s+Size: [0-9]+ (GB|MB)')
+  speed=$(dmidecode -t memory 2>/dev/null | awk -F': ' '/Configured Memory Speed: [0-9]/ {print $2; exit}')
+  ok ram.size "RAM" "${mem_gb} GB in ${dimms} stick(s) @ ${speed:-unknown}"
+  if [ "$dimms" -ge "$RAM_EXPECTED_STICKS" ]; then
+    ok ram.sticks "RAM sticks" "$dimms"
+  elif [ "$dimms" -eq 1 ]; then
+    warn ram.sticks "RAM sticks" "only 1 stick (single channel)" "replace the faulty kit"
+  else
+    warn ram.sticks "RAM sticks" "only $dimms stick(s), expected $RAM_EXPECTED_STICKS" "check the BIOS and the slots"
+  fi
+  mts=${speed%% *}
+  case $mts in
+    '' | *[!0-9]*) warn ram.speed "RAM speed" "could not read" ;;
+    *)
+      if [ "$mts" -gt "$RAM_MAX_MTS" ]; then
+        warn ram.speed "RAM speed" "looks like XMP is on" "keep BIOS memory on Standard"
+      else
+        ok ram.speed "RAM speed" "Standard (XMP off)"
+      fi
+      ;;
+  esac
+
+  if have lspci && [ -z "$(lspci -d 10de: 2>/dev/null)" ] && ! have nvidia-smi; then
+    skip gpu "GPU" "no NVIDIA GPU"
+  elif have nvidia-smi && gpu=$(nvidia-smi --query-gpu=name,temperature.gpu,power.draw,driver_version --format=csv,noheader 2>/dev/null); then
+    IFS=',' read -r gname gtemp gpow gdrv <<<"$gpu"
+    gtemp=${gtemp// /}
+    if [ "${gtemp:-0}" -lt 80 ]; then
+      ok gpu "GPU" "$gname, ${gtemp}°C,$gpow, driver$gdrv"
+    else
+      warn gpu "GPU" "$gname is hot: ${gtemp}°C"
+    fi
+  else
+    bad gpu "GPU" "nvidia-smi failed" "driver not loaded? sudo ubuntu-drivers install, then reboot"
+  fi
+
+  if have sensors; then
+    ctemp=$(sensors 2>/dev/null | awk '/^Package id 0:/ {gsub(/[+°C]/,"",$4); print int($4); exit}')
+    if [ -z "$ctemp" ]; then
+      warn cpu.temp "CPU temp" "not found in sensors"
+    elif [ "$ctemp" -lt 85 ]; then
+      ok cpu.temp "CPU temp" "${ctemp}°C"
+    else
+      warn cpu.temp "CPU temp" "${ctemp}°C" "check cooling"
+    fi
+    rtemp=$(sensors 2>/dev/null | awk '/^spd5118/ {f=1} f && /temp1:/ {gsub(/[+°C]/,"",$2); print int($2); exit}')
+    if [ -z "$rtemp" ]; then
+      skip ram.temp "RAM temp" "no spd5118 sensor"
+    elif [ "$rtemp" -lt 65 ]; then
+      ok ram.temp "RAM temp" "${rtemp}°C"
+    else
+      warn ram.temp "RAM temp" "${rtemp}°C"
+    fi
+  else
+    warn cpu.temp "Temperatures" "install lm-sensors"
+    skip ram.temp "RAM temp" "lm-sensors not installed"
+  fi
+fi
+
+# ---------------------------------------------------------------- storage
+if want storage "Storage"; then
+  if have smartctl; then
+    if smartctl -H /dev/nvme0 2>/dev/null | grep -q PASSED; then
+      errs=$(smartctl -a /dev/nvme0 2>/dev/null | awk -F': *' '/Media and Data Integrity Errors/ {print $2}')
+      wear=$(smartctl -a /dev/nvme0 2>/dev/null | awk -F': *' '/Percentage Used/ {print $2}')
+      if [ "${errs:-0}" = "0" ]; then
+        ok nvme.smart "NVMe SMART" "PASSED, 0 media errors, ${wear:-?} worn"
+      else
+        bad nvme.smart "NVMe SMART" "PASSED but ${errs} media errors" "back up now and plan to replace the drive"
+      fi
+    else
+      bad nvme.smart "NVMe SMART" "health check did not pass" "sudo smartctl -a /dev/nvme0"
+    fi
+  else
+    warn nvme.smart "NVMe SMART" "smartmontools missing" "sudo apt install smartmontools"
+  fi
+  use=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+  if [ "${use:-0}" -lt 85 ]; then ok disk.root "Disk /" "${use}% used"; else warn disk.root "Disk /" "${use}% used"; fi
+  swap=$(awk '/SwapTotal/ {printf "%.0f", $2/1048576}' "$MEMINFO")
+  if [ "${swap:-0}" -ge 8 ]; then ok swap "Swap" "${swap} GB"; else warn swap "Swap" "${swap} GB" "consider a 16 GB swap file"; fi
+fi
+
+# ---------------------------------------------------------------- stability
+if want stability "Stability"; then
+  wd=$(systemctl show -p RuntimeWatchdogUSec --value 2>/dev/null)
+  case "$wd" in
+    0 | infinity | "") warn watchdog "Hardware watchdog" "off" "beast install reliability" ;;
+    *) ok watchdog "Hardware watchdog" "$wd" ;;
+  esac
+  kp=$(sysctl -n kernel.panic 2>/dev/null)
+  if [ "${kp:-0}" -gt 0 ]; then
+    ok panic.reboot "Reboot on kernel panic" "after ${kp}s"
+  else
+    warn panic.reboot "Reboot on kernel panic" "off" "beast install reliability"
+  fi
+  mce=$(journalctl -k -b --no-pager 2>/dev/null | grep -ciE 'machine check|hardware error|mce:')
+  if [ "$mce" -eq 0 ]; then
+    ok hw.errors "Hardware errors (this boot)" "none"
+  else
+    bad hw.errors "Hardware errors (this boot)" "$mce" "run: journalctl -k -b | grep -iE 'mce|hardware error'"
+  fi
+  if journalctl -b -1 -n 1 --no-pager >/dev/null 2>&1; then
+    if journalctl -b -1 -n 30 --no-pager 2>/dev/null | grep -q 'Journal stopped'; then
+      ok shutdown.previous "Previous shutdown" "clean"
+    else
+      warn shutdown.previous "Previous shutdown" "unclean (crash, freeze or power loss)" "check: journalctl -b -1 | tail"
+    fi
+  else
+    skip shutdown.previous "Previous shutdown" "no previous boot in the journal"
+  fi
+  failed=$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | grep -v '^sssd' | paste -sd' ')
+  if [ -z "$failed" ]; then ok services.failed "Failed services" "none"; else warn services.failed "Failed services" "$failed"; fi
+fi
+
+# ---------------------------------------------------------------- network
+if want network "Network"; then
+  if have nmcli; then
+    active=$(nmcli -t -f NAME,TYPE,DEVICE connection show --active 2>/dev/null)
+    wifi=$(printf '%s\n' "$active" | awk -F: '$2 ~ /wireless/ {print $1" on "$3}' | head -n 1)
+    eth=$(printf '%s\n' "$active" | awk -F: '$2 ~ /ethernet/ {print $1" on "$3}' | head -n 1)
+    [ -z "$eth" ] || ok net.ethernet "Ethernet" "$eth"
+    [ -z "$wifi" ] || ok net.wifi "Wi-Fi" "$wifi"
+    [ -n "$eth$wifi" ] || bad net.ethernet "Network" "no active Wi-Fi or Ethernet"
+    while IFS=: read -r uuid type name; do
+      [[ $type == *wireless* ]] || continue
+      name=${name//\\:/:}
+      ifn=$(nmcli -g connection.interface-name connection show uuid "$uuid" 2>/dev/null)
+      if [ -z "$ifn" ]; then
+        ok "wifi.ifname.$name" "Wi-Fi '$name'" "not tied to a device name"
+      else
+        warn "wifi.ifname.$name" "Wi-Fi '$name'" "tied to $ifn" "run: sudo nmcli connection modify uuid $uuid connection.interface-name \"\""
+      fi
+    done < <(nmcli -t -f UUID,TYPE,NAME connection show 2>/dev/null)
+  else
+    bad net.ethernet "Network" "NetworkManager (nmcli) not found"
+  fi
+  if ping -c1 -W3 1.1.1.1 >/dev/null 2>&1; then ok net.internet "Internet" "reachable"; else bad net.internet "Internet" "ping 1.1.1.1 failed"; fi
+  if timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q yes; then
+    ok clock.ntp "Clock" "NTP synchronized"
+  else
+    warn clock.ntp "Clock" "not synchronized"
+  fi
+
+  tsinfo=""
+  if have tailscale; then
+    tsinfo=$(tailscale status --json 2>/dev/null | python3 -c '
+import json, sys
+s = json.load(sys.stdin); me = s.get("Self") or {}
+ip = (me.get("TailscaleIPs") or ["?"])[0]
+st = str(s.get("BackendState")); host = me.get("HostName", "?")
+exp = me.get("KeyExpiry") or "disabled"
+print(st + "|" + host + " " + ip + "|" + exp)
+' 2>/dev/null)
+  fi
+  IFS='|' read -r tstate tself texp <<<"$tsinfo"
+  if [ "${tstate:-}" = Running ]; then
+    ok tailscale "Tailscale" "$tself"
+    if [ "$texp" = disabled ]; then
+      ok tailscale.expiry "Tailscale key expiry" "disabled"
+    else
+      warn tailscale.expiry "Tailscale key expiry" "expires $texp" "disable it in the admin console"
+    fi
+  else
+    bad tailscale "Tailscale" "${tstate:-not running}" "try: sudo tailscale up"
+    skip tailscale.expiry "Tailscale key expiry" "Tailscale isn't running"
+  fi
+fi
+
+# ---------------------------------------------------------------- services & config
+if want services "Services & config"; then
+  for u in tailscaled ssh.socket NetworkManager; do
+    if systemctl is-active --quiet "$u"; then ok "svc.$u" "$u" "active"; else bad "svc.$u" "$u" "$(systemctl is-active "$u" 2>/dev/null)"; fi
+  done
+  lstate=$(systemctl is-enabled lights-off.service 2>/dev/null)
+  if [ -z "$lstate" ] || [ "$lstate" = not-found ]; then
+    skip lights.boot "lights-off.service" "not installed"
+  elif [ "$LIGHTS_BOOT" = hardware ]; then
+    if [ "$lstate" = enabled ]; then
+      warn lights.boot "lights-off.service" "enabled, but LIGHTS_BOOT=hardware" "beast install lights"
+    else
+      ok lights.boot "lights-off.service" "disabled (LIGHTS_BOOT=hardware)"
+    fi
+  elif [ "$lstate" = enabled ]; then
+    ok lights.boot "lights-off.service" "enabled"
+  else
+    warn lights.boot "lights-off.service" "not enabled" "beast install lights"
+  fi
+  target=$(systemctl get-default 2>/dev/null)
+  if [ "$target" = multi-user.target ]; then ok boot.target "Boot target" "headless (multi-user)"; else warn boot.target "Boot target" "$target"; fi
+  if [ "$(systemctl is-enabled sleep.target 2>/dev/null)" = masked ]; then ok sleep "Sleep" "disabled (masked)"; else warn sleep "Sleep" "not masked"; fi
+  sshd_t=$(sshd -T 2>/dev/null)
+  pa=$(printf '%s\n' "$sshd_t" | awk '/^passwordauthentication/ {print $2}')
+  prl=$(printf '%s\n' "$sshd_t" | awk '/^permitrootlogin/ {print $2}')
+  if [ "$pa" = no ] && [ "$prl" = no ]; then
+    ok ssh.passwords "SSH passwords" "disabled (keys only)"
+  else
+    warn ssh.passwords "SSH passwords" "passwordauthentication ${pa:-unknown}, permitrootlogin ${prl:-unknown}" "beast install ssh"
+  fi
+  os_id=$(sed -n 's/^ID=//p' "$OS_RELEASE" 2>/dev/null | tr -d '"')
+  os_ver=$(sed -n 's/^VERSION_ID=//p' "$OS_RELEASE" 2>/dev/null | tr -d '"')
+  os_name=$(sed -n 's/^PRETTY_NAME=//p' "$OS_RELEASE" 2>/dev/null | tr -d '"')
+  case "$os_id $os_ver" in
+    "ubuntu 24.04" | "ubuntu 26.04") ok os "OS" "${os_name:-Ubuntu $os_ver}" ;;
+    *) warn os "OS" "${os_name:-unknown}: not Ubuntu 24.04 or 26.04" ;;
+  esac
+fi
+
+# ---------------------------------------------------------------- client
+if want client "Client"; then
+  # The terminfo is installed per user (tic -x), so look in that user's home.
+  if HOME=$(user_home) infocmp xterm-ghostty >/dev/null 2>&1; then
+    ok ghostty.terminfo "Ghostty terminfo" "installed"
+  else
+    warn ghostty.terminfo "Ghostty terminfo" "missing" "on the Mac: infocmp -x xterm-ghostty | ssh $HOST_USER@$HOST_NAME -- tic -x -"
+  fi
+fi
+
+# ---------------------------------------------------------------- summary
+if [ "$JSON" = 1 ]; then
+  printf '{"version":1,"host":%s,"timestamp":%s,\n"summary":{"pass":%d,"warn":%d,"fail":%d,"skip":%d},\n"checks":[\n%s\n]}\n' \
+    "$(json_str "$(hostname)")" "$(json_str "$(date '+%Y-%m-%dT%H:%M:%S%:z')")" "$PASS" "$WARN" "$FAIL" "$SKIP" "$CHECKS"
+else
+  printf '\n%s%d passed%s, %s%d warnings%s, %s%d failed%s' "$G" "$PASS" "$N" "$Y" "$WARN" "$N" "$R" "$FAIL" "$N"
+  [ "$SKIP" -eq 0 ] || printf ', %d skipped' "$SKIP"
+  printf '\n'
+fi
+[ "$FAIL" -eq 0 ] || exit 1
+[ "$STRICT" = 0 ] || [ "$WARN" -eq 0 ] || exit 3
+exit 0
