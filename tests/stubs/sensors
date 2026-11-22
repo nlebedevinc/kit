@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+echo "coretemp-isa-0000"
+[ -n "${STUB_CPU_TEMP-33}" ] && echo "Package id 0:  +${STUB_CPU_TEMP-33}.0°C  (high = +105.0°C, crit = +105.0°C)"
+echo
+if [ -n "${STUB_RAM_TEMP-40}" ]; then echo "spd5118-i2c-0-51"; echo "temp1:        +${STUB_RAM_TEMP-40}.0°C"; fi

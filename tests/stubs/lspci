@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+[ "${STUB_NO_GPU:-0}" = 1 ] || echo "02:00.0 VGA compatible controller: NVIDIA Corporation Device 2c05"

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+echo "tailscale $*" >>"$STATE/calls"
+case $1 in
+  status)
+    exp=''
+    [ -z "${STUB_TS_EXPIRY:-}" ] || exp=",\"KeyExpiry\":\"$STUB_TS_EXPIRY\""
+    printf '{"BackendState":"%s","AuthURL":"%s","Self":{"ID":"nTEST123","HostName":"beast","TailscaleIPs":["100.64.0.1"]%s}}\n' \
+      "${STUB_TS_STATE:-Running}" "${STUB_TS_AUTHURL:-}" "$exp" ;;
+  up)
+    cat >"$STATE/tailscale-up.stdin" 2>/dev/null </dev/stdin || true
+    [ -z "${STUB_TS_AUTHURL:-}" ] || { printf '\nTo authenticate, visit:\n\n\t%s\n\n' "$STUB_TS_AUTHURL" >&2; exit 1; } ;;
+esac
+exit 0

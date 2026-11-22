@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Fake sudo: runs the command unprivileged. STUB_SUDO_NOPASS=1: a password would be
+# needed (sudo -n fails). System paths in arguments are redirected into $FAKEROOT.
+echo "sudo $*" >>"$STATE/calls"
+while [ $# -gt 0 ]; do
+  case $1 in
+    -n) [ "${STUB_SUDO_NOPASS:-0}" != 1 ] || exit 1; shift ;;
+    -v) [ "${STUB_SUDO_NOPASS:-0}" != 1 ] || exit 1; exit 0 ;;
+    -u) shift 2 ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+[ $# -gt 0 ] || exit 0
+args=()
+for a in "$@"; do
+  case $a in /etc/* | /usr/local/* | /run/* | /var/*) a=$FAKEROOT$a ;; esac
+  args+=("$a")
+done
+exec "${args[@]}"

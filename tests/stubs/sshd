@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+echo "sshd $*" >>"$STATE/calls"
+case $1 in
+  -T) printf 'passwordauthentication %s\nkbdinteractiveauthentication no\npermitrootlogin %s\n' "${STUB_SSH_PA:-no}" "${STUB_SSH_ROOT:-no}" ;;
+  -t) exit "${STUB_SSHD_T:-0}" ;;
+esac

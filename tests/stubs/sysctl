@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+echo "sysctl $*" >>"$STATE/calls"
+[ "$1" = -n ] && { echo "${STUB_PANIC-10}"; exit 0; }
+exit 0

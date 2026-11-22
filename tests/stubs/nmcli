@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Fake nmcli: Wi-Fi "Home" active by default. STUB_NET=wifi|eth|both|none.
+echo "nmcli $*" >>"$STATE/calls"
+net=${STUB_NET:-wifi}
+case "$*" in
+  "-t -f NAME,TYPE,DEVICE connection show --active")
+    case $net in wifi | both) echo "Home:802-11-wireless:wlp130s0f0" ;; esac
+    case $net in eth | both) echo "netplan-enp130s0:802-3-ethernet:enp130s0" ;; esac ;;
+  "-t -f UUID,TYPE connection show --active")
+    case $net in wifi | both) echo "1111-aaaa:802-11-wireless" ;; esac ;;
+  "-t -f UUID,TYPE,NAME connection show")
+    echo "1111-aaaa:802-11-wireless:Home"
+    echo "2222-bbbb:802-3-ethernet:netplan-enp130s0" ;;
+  "-g connection.interface-name connection show uuid 1111-aaaa") echo "${STUB_IFNAME:-}" ;;
+  *) exit 0 ;;
+esac

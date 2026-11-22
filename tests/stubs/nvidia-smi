@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+[ "${STUB_GPU:-ok}" = ok ] || exit 9
+case "$*" in
+  *temperature*) echo "NVIDIA GeForce RTX 5070 Ti, ${STUB_GPU_TEMP:-35}, 13.00 W, 595.99.02" ;;
+  *) echo "NVIDIA GeForce RTX 5070 Ti, 595.99.02, 16303 MiB" ;;
+esac

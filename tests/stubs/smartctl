@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+case $1 in
+  -H) [ "${STUB_SMART:-ok}" = ok ] && echo "SMART overall-health self-assessment test result: PASSED" || echo "SMART overall-health self-assessment test result: FAILED!" ;;
+  -a) echo "Percentage Used:                    0%"; echo "Media and Data Integrity Errors:    ${STUB_MEDIA_ERRORS:-0}" ;;
+esac

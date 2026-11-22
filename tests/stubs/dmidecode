@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+n=${STUB_STICKS:-2}
+for i in 1 2 3 4; do
+  echo "Memory Device"
+  if [ "$i" -le "$n" ]; then
+    printf '\tSize: 32 GB\n'
+    [ -z "${STUB_SPEED-5600 MT/s}" ] || printf '\tConfigured Memory Speed: %s\n' "${STUB_SPEED-5600 MT/s}"
+  else
+    printf '\tSize: No Module Installed\n'
+  fi
+done

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Fake curl: records the call (not stdin: that may hold a token) and succeeds.
+echo "curl $*" >>"$STATE/calls"
+[ -t 0 ] || cat >/dev/null

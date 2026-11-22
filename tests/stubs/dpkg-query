@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+pkg=${!#}
+[[ " ${STUB_MISSING_PKGS:-} " == *" $pkg "* ]] && exit 1
+printf 'install ok installed'

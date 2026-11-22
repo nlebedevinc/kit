@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Fake openrgb: SETUP-LOG §8.1's devices (STUB_DEVICES=four), one RAM stick (one-ram),
+# or nothing (none). Records every call.
+echo "openrgb $*" >>"$STATE/openrgb.calls"
+case " $* " in
+  *" -l "*)
+    case ${STUB_DEVICES:-four} in
+      four) printf '0: ENE DRAM\n1: ENE DRAM\n2: Gigabyte GeForce RTX 5070 Ti Eagle OC ICE\n3: MSI MYSTIC LIGHT\n' ;;
+      one-ram) printf '0: ENE DRAM\n1: Gigabyte GeForce RTX 5070 Ti Eagle OC ICE\n2: MSI MYSTIC LIGHT\n' ;;
+      none) echo "Connection attempt failed" ;;
+    esac ;;
+esac
+exit 0

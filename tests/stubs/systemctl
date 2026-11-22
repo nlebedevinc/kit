@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Fake systemctl. Healthy defaults; STUB_* variables change the answers.
+echo "systemctl $*" >>"$STATE/calls"
+case $1 in
+  show) echo "${STUB_WATCHDOG-30s}" ;;
+  --failed) [ -z "${STUB_FAILED:-}" ] || printf '%s loaded failed failed X\n' $STUB_FAILED ;;
+  is-active)
+    [ "$2" = --quiet ] && u=$3 || u=$2
+    if [[ " ${STUB_INACTIVE:-} " == *" $u "* ]]; then [ "$2" = --quiet ] || echo inactive; exit 3; fi
+    [ "$2" = --quiet ] || echo active ;;
+  is-enabled)
+    case $2 in
+      lights-off.service) echo "${STUB_LIGHTS-enabled}" ;;
+      sleep.target | suspend.target | hibernate.target | hybrid-sleep.target) echo "${STUB_SLEEP-masked}" ;;
+      ssh.socket) echo "${STUB_SSH_SOCKET-enabled}" ;;
+      *) echo enabled ;;
+    esac ;;
+  get-default) echo "${STUB_DEFAULT-multi-user.target}" ;;
+  *) exit 0 ;;
+esac
