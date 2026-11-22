@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs as root inside a stock ubuntu:24.04 or ubuntu:26.04 container (SPEC §10).
+# Runs as root inside a stock ubuntu:24.04 or ubuntu:26.04 container.
 # The real `curl | bash` path on a fresh system: no git, no curl, no hardware.
 #   install.sh --dry-run --yes --non-interactive --json
 # Expected: exit 0, every module planned or skipped, hardware modules skipped,

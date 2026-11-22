@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# bin/lights: openrgb command construction (SPEC §9), against a fake openrgb.
+# bin/lights: openrgb command construction, against a fake openrgb.
 
 load helpers
 

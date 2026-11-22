@@ -1,2 +1,6 @@
 *.bak.*
 .DS_Store
+
+# Local only: not published
+/CLAUDE.md
+/SPEC.md

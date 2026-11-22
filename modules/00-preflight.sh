@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# 00-preflight (SPEC §5): refuses root, checks sudo, takes the lock (those three run
+# 00-preflight: refuses root, checks sudo, takes the lock (those three run
 # in bin/beast's own process, see preflight()), detects the OS, SSH session and TTY,
 # and creates the config file.
 

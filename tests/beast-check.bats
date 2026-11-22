@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# bin/beast-check: every check ID, with stubbed system commands (SPEC §7, §10).
+# bin/beast-check: every check ID, with stubbed system commands.
 # The stubs describe a healthy beast; STUB_* variables break one thing at a time.
 
 load helpers
@@ -29,7 +29,7 @@ expect() {
   STUB_GPU=fail STUB_STICKS=1 STUB_NO_PREV=1 beast_check --json | validate doctor.schema.json
 }
 
-@test "every check ID in SPEC §7.1 is reported" {
+@test "every documented check ID is reported" {
   local ids
   ids=$(beast_check --json | jq -r '.checks[].id' | sort | tr '\n' ' ')
   for id in ram.size ram.sticks ram.speed gpu cpu.temp ram.temp nvme.smart disk.root swap \

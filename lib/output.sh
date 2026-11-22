@@ -1,8 +1,8 @@
 # shellcheck shell=bash
-# beast output: exit codes, colors, human vs. JSON output (SPEC §8.2–8.3).
+# beast output: exit codes, colors, human vs. JSON output.
 # JSON goes to stdout only; human logs go to stderr (and the install log, see common.sh).
 
-# Exit codes shared by every command (SPEC §8.2).
+# Exit codes shared by every command.
 # shellcheck disable=SC2034  # used by bin/beast and the modules
 EXIT_OK=0 EXIT_FAIL=1 EXIT_USAGE=2 EXIT_MANUAL=3 EXIT_BLOCKED=4 EXIT_SUDO=5 EXIT_LOCKED=6
 

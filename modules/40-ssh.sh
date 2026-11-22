@@ -1,6 +1,6 @@
 # shellcheck shell=bash disable=SC2154  # HOST_USER, HOST_NAME come from the config
 # 40-ssh (log §5.2–5.3): key-only SSH, no root login.
-# Safety gate (SPEC §6.1): passwords stay on until ~/.ssh/authorized_keys has a key;
+# Safety gate: passwords stay on until ~/.ssh/authorized_keys has a key;
 # the drop-in is validated with sshd -t before the restart and rolled back if bad.
 # beast-check: ssh.passwords, svc.ssh.socket.
 

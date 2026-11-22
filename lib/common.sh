@@ -62,7 +62,7 @@ run_cmd() {
 
 run_sudo() { run_cmd sudo "$@"; }
 
-# apt_get ARGS...: apt-get as root, never asking anything (SPEC §5, §8.1).
+# apt_get ARGS...: apt-get as root, never asking anything.
 apt_get() {
   run_sudo env DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold "$@"
 }
@@ -115,7 +115,7 @@ sha256_of() { sha256sum "$1" | awk '{print $1}'; }
 
 # ---------------------------------------------------------------- session and prompts
 
-# interactive: a person can answer prompts (SPEC §8.1).
+# interactive: a person can answer prompts.
 interactive() { [ "$BEAST_NONINTERACTIVE" != 1 ] && [ -t 0 ]; }
 
 is_ssh_session() { [ -n "${SSH_CONNECTION:-}" ]; }
@@ -173,7 +173,7 @@ manual_action() {
   info "${C_YELLOW}manual action:${C_RESET} $2${3:+ ($3)}"
 }
 
-# reboot_required: beast never reboots (SPEC §6.3); the summary says so instead.
+# reboot_required: beast never reboots; the summary says so instead.
 reboot_required() {
   if [ -n "${BEAST_RUN_DIR:-}" ]; then : >"$BEAST_RUN_DIR/reboot"; fi
   info "a reboot is needed to finish this (beast never reboots by itself)"
@@ -248,7 +248,7 @@ require_not_root() {
   fi
 }
 
-# take_lock: one beast run at a time (SPEC §5 00-preflight). The lock is held on
+# take_lock: one beast run at a time. The lock is held on
 # fd 9 until this process and its children exit.
 take_lock() {
   mkdir -p "$BEAST_STATE_DIR"
@@ -261,7 +261,7 @@ take_lock() {
 }
 
 # ensure_sudo: interactive: ask for the password once and keep it fresh.
-# Non-interactive: sudo must already work without a password (SPEC §8.4).
+# Non-interactive: sudo must already work without a password.
 ensure_sudo() {
   [ "$BEAST_DRY_RUN" != 1 ] || return 0
   [ -z "${BEAST_SUDO_READY:-}" ] || return 0
@@ -315,7 +315,7 @@ sleep_masked() {
   done
 }
 
-# headless_gate: SPEC §6.2. Tailscale Running, ssh.socket enabled, sleep masked.
+# headless_gate: Tailscale Running, ssh.socket enabled, sleep masked.
 headless_gate() {
   local ok=0
   if [ "$(ts_field BackendState)" != Running ]; then

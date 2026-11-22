@@ -1,6 +1,6 @@
 # shellcheck shell=bash disable=SC2154  # HOST_USER, HOST_NAME come from the config
 # 60-headless (log §6.2–6.3): never sleep; boot to the command line.
-# Safety gate (SPEC §6.2): Tailscale Running, ssh.socket enabled, sleep masked.
+# Safety gate: Tailscale Running, ssh.socket enabled, sleep masked.
 # Never reboots. beast-check: sleep, boot.target.
 
 describe() { echo "No sleep; boots to the command line (desktop off)"; }

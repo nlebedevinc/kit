@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# beast-check: one-shot health report for the beast server (SPEC §7).
+# beast-check: one-shot health report for the beast server.
 # Usage: beast-check [--json] [--strict] [--section NAME] [--ascii] [--no-color] [--config PATH]
 #        (re-runs itself with sudo when needed)
 # Standalone on purpose: installed to /usr/local/bin, it works without the repo.

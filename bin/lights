@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lights: RGB control for beast (SPEC §9, SETUP-LOG §8). Installed to /usr/local/bin/lights.
+# lights: RGB control for beast (SETUP-LOG §8). Installed to /usr/local/bin/lights.
 #
 # Devices are found by name at runtime: indices change with the hardware (one RAM
 # stick means one ENE DRAM device, and the GPU and MSI indices shift).
