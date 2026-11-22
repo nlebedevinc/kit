@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+# lights: RGB control for beast (SPEC §9, SETUP-LOG §8). Installed to /usr/local/bin/lights.
+#
+# Devices are found by name at runtime: indices change with the hardware (one RAM
+# stick means one ENE DRAM device, and the GPU and MSI indices shift).
+# MSI MYSTIC LIGHT only takes Direct, and each zone's size must be set before its
+# color, in the same openrgb call.
+# Standalone on purpose: the boot service runs it as root without the repo.
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: lights on | off | RRGGBB | status | detect
+       lights --json status
+       lights --dry-run <action>     print the openrgb calls instead of running them
+
+  on        RAM in LIGHTS_ON_RAM_MODE (Rainbow), GPU and motherboard in LIGHTS_ON_COLOR
+  off       everything off
+  RRGGBB    everything one color, e.g. lights 00AAFF
+  status    detected devices and how they're mapped
+  detect    detect devices and print matching config lines
+
+Settings come from ~/.config/beast/beast.conf (or BEAST_CONFIG, or --config PATH).
+
+`lights on` can't bring back the motherboard's built-in rainbow: OpenRGB can only
+send the MSI controller static colors. The stored effects return after a full power
+cycle with the boot service disabled; see docs/troubleshooting.md.
+EOF
+}
+
+die() {
+  printf 'lights: %s\n' "$*" >&2
+  exit 1
+}
+
+# ---------------------------------------------------------------- config
+
+KEYS="OPENRGB_BIN LIGHTS_RAM_DEVICES LIGHTS_GPU_DEVICE LIGHTS_MB_DEVICE LIGHTS_MB_ZONES LIGHTS_MB_ZONE_SIZE LIGHTS_ON_RAM_MODE LIGHTS_ON_COLOR"
+
+config_path() {
+  local home=$HOME
+  if [ -n "${CONFIG:-}" ]; then
+    printf '%s' "$CONFIG"
+    return
+  fi
+  if [ -n "${BEAST_CONFIG:-}" ]; then
+    printf '%s' "$BEAST_CONFIG"
+    return
+  fi
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then home=$(getent passwd "$SUDO_USER" | cut -d: -f6); fi
+  printf '%s' "$home/.config/beast/beast.conf"
+}
+
+# Parsed, not sourced: this runs as root at boot.
+load_config() {
+  local file line key val
+  OPENRGB_BIN=/usr/local/bin/openrgb
+  LIGHTS_RAM_DEVICES="ENE DRAM"
+  LIGHTS_GPU_DEVICE="GeForce"
+  LIGHTS_MB_DEVICE="MSI MYSTIC LIGHT"
+  LIGHTS_MB_ZONES="0 1 2 3"
+  LIGHTS_MB_ZONE_SIZE=120
+  LIGHTS_ON_RAM_MODE=Rainbow
+  LIGHTS_ON_COLOR=FFFFFF
+  file=$(config_path)
+  [ -r "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ $line =~ ^[[:space:]]*([A-Z_]+)=(.*)$ ]] || continue
+    key=${BASH_REMATCH[1]} val=${BASH_REMATCH[2]}
+    [[ " $KEYS " == *" $key "* ]] || continue
+    case $val in
+      \"*) val=${val#\"} val=${val%%\"*} ;;
+      \'*) val=${val#\'} val=${val%%\'*} ;;
+      *) val=${val%%[[:space:]]#*} val=${val%"${val##*[![:space:]]}"} ;;
+    esac
+    printf -v "$key" '%s' "$val"
+  done <"$file"
+}
+
+is_color() { [[ $1 =~ ^[0-9A-Fa-f]{6}$ ]]; }
+
+# ---------------------------------------------------------------- devices
+
+DEVICES='' # "index<TAB>name" per line
+RAM='' GPU='' MB=''
+
+detect_devices() {
+  local out
+  [ -x "$OPENRGB_BIN" ] || die "OpenRGB isn't installed at $OPENRGB_BIN (beast install openrgb)"
+  out=$("$OPENRGB_BIN" --noautoconnect -l 2>&1 || true)
+  DEVICES=$(printf '%s\n' "$out" | sed -n 's/^\([0-9][0-9]*\): \(.*\)$/\1\t\2/p')
+  [ -n "$DEVICES" ] || die "no RGB devices found (are i2c-dev and i2c-i801 loaded? sudo modprobe -a i2c-dev i2c-i801; run lights with sudo)"
+  RAM=$(indices_matching "$LIGHTS_RAM_DEVICES" | tr '\n' ' ')
+  RAM=${RAM% }
+  GPU=$(indices_matching "$LIGHTS_GPU_DEVICE" | head -n 1)
+  MB=$(indices_matching "$LIGHTS_MB_DEVICE" | head -n 1)
+  [ -n "$RAM" ] || printf 'lights: note: no "%s" device (RAM)\n' "$LIGHTS_RAM_DEVICES" >&2
+  [ -n "$GPU" ] || printf 'lights: note: no "%s" device (GPU)\n' "$LIGHTS_GPU_DEVICE" >&2
+  [ -n "$MB" ] || printf 'lights: note: no "%s" device (motherboard)\n' "$LIGHTS_MB_DEVICE" >&2
+  return 0
+}
+
+indices_matching() { printf '%s\n' "$DEVICES" | awk -F '\t' -v n="$1" 'index($2, n) { print $1 }'; }
+
+# ---------------------------------------------------------------- one openrgb call per action
+
+ARGS=()
+
+ram() { # MODE [COLOR]
+  local i
+  for i in $RAM; do
+    ARGS+=(-d "$i" -m "$1")
+    if [ -n "${2:-}" ]; then ARGS+=(-c "$2"); fi
+  done
+}
+
+gpu() { # MODE COLOR [BRIGHTNESS]
+  [ -n "$GPU" ] || return 0
+  ARGS+=(-d "$GPU" -m "$1" -c "$2")
+  if [ -n "${3:-}" ]; then ARGS+=(-b "$3"); fi
+}
+
+mb() { # COLOR: Direct, and every zone sized before its color, in this same call
+  local z
+  [ -n "$MB" ] || return 0
+  ARGS+=(-d "$MB" -m Direct)
+  for z in $LIGHTS_MB_ZONES; do ARGS+=(-z "$z" -sz "$LIGHTS_MB_ZONE_SIZE" -c "$1"); done
+}
+
+openrgb() {
+  [ ${#ARGS[@]} -gt 0 ] || return 0
+  if [ "$DRY_RUN" = 1 ]; then
+    printf '%s --noautoconnect %s\n' "$OPENRGB_BIN" "${ARGS[*]}"
+  else
+    "$OPENRGB_BIN" --noautoconnect "${ARGS[@]}" >/dev/null
+  fi
+  ARGS=()
+}
+
+# ---------------------------------------------------------------- actions
+
+lights_off() {
+  ram Off
+  gpu Direct 000000
+  mb 000000
+  openrgb
+  gpu Static 000000 0 # the GPU has no Off mode
+  openrgb
+  echo "Lights off"
+}
+
+lights_on() {
+  ram "$LIGHTS_ON_RAM_MODE"
+  gpu Static "$LIGHTS_ON_COLOR" 100
+  mb "$LIGHTS_ON_COLOR"
+  openrgb
+  echo "Lights on"
+}
+
+lights_color() {
+  ram Static "$1"
+  gpu Static "$1" 100
+  mb "$1"
+  openrgb
+  echo "Lights set to #$1"
+}
+
+json_str() {
+  local s=${1//\\/\\\\}
+  printf '"%s"' "${s//\"/\\\"}"
+}
+
+lights_status() {
+  local i first=1
+  if [ "$JSON" = 1 ]; then
+    printf '{"devices":['
+    while IFS=$'\t' read -r i name; do
+      [ "$first" = 1 ] || printf ','
+      first=0
+      printf '{"index":%s,"name":%s}' "$i" "$(json_str "$name")"
+    done <<<"$DEVICES"
+    printf '],"ram":[%s],"gpu":%s,"motherboard":%s,"zones":[%s],"zone_size":%s}\n' \
+      "$(printf '%s' "$RAM" | tr ' ' ',')" "${GPU:-null}" "${MB:-null}" \
+      "$(printf '%s' "$LIGHTS_MB_ZONES" | tr -s ' ' ',')" "$LIGHTS_MB_ZONE_SIZE"
+    return 0
+  fi
+  echo "Devices:"
+  printf '%s\n' "$DEVICES" | awk -F '\t' '{ printf "  %s: %s\n", $1, $2 }'
+  echo "Mapping:"
+  echo "  RAM (\"$LIGHTS_RAM_DEVICES\"): ${RAM:-not found}"
+  echo "  GPU (\"$LIGHTS_GPU_DEVICE\"): ${GPU:-not found}"
+  echo "  Motherboard (\"$LIGHTS_MB_DEVICE\"): ${MB:-not found} (zones $LIGHTS_MB_ZONES, $LIGHTS_MB_ZONE_SIZE LEDs each)"
+}
+
+lights_detect() {
+  lights_status
+  echo
+  echo "Config lines for ~/.config/beast/beast.conf (then: beast install lights):"
+  printf '%s\n' "$DEVICES" | awk -F '\t' '{ print "  # " $1 ": " $2 }'
+  echo "  LIGHTS_RAM_DEVICES=\"$LIGHTS_RAM_DEVICES\""
+  echo "  LIGHTS_GPU_DEVICE=\"$LIGHTS_GPU_DEVICE\""
+  echo "  LIGHTS_MB_DEVICE=\"$LIGHTS_MB_DEVICE\""
+}
+
+main() {
+  local action=''
+  DRY_RUN=0 JSON=0 CONFIG=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -n | --dry-run) DRY_RUN=1 ;;
+      --json) JSON=1 ;;
+      --config)
+        [ $# -ge 2 ] || die "--config needs a path"
+        CONFIG=$2
+        shift
+        ;;
+      -h | --help | help)
+        usage
+        return 0
+        ;;
+      -*) die "unknown flag: $1 (see lights --help)" ;;
+      *)
+        [ -z "$action" ] || die "one action at a time (see lights --help)"
+        action=$1
+        ;;
+    esac
+    shift
+  done
+  if [ -z "$action" ]; then
+    usage >&2
+    exit 2
+  fi
+  case $action in
+    on | off | status | detect) ;;
+    *) is_color "$action" || die "not a color or action: $action (use RRGGBB, e.g. 00AAFF)" ;;
+  esac
+  if [ "$JSON" = 1 ] && [ "$action" != status ]; then die "--json works with status only"; fi
+
+  load_config
+  detect_devices
+  case $action in
+    on) lights_on ;;
+    off) lights_off ;;
+    status) lights_status ;;
+    detect) lights_detect ;;
+    *) lights_color "$(printf '%s' "$action" | tr '[:lower:]' '[:upper:]')" ;;
+  esac
+}
+
+main "$@"
