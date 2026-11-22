@@ -41,7 +41,7 @@ teardown() { beast_teardown; }
   [ "$(printf '%s' "$output" | jq -r '[.env[].name] | join(" ")')" = "TAILSCALE_AUTHKEY TS_API_TOKEN WIFI_PSK BEAST_NONINTERACTIVE NO_COLOR" ]
   [ "$(printf '%s' "$output" | jq -r '[.exit_codes[].code] | join(",")')" = "0,1,2,3,4,5,6" ]
   [ "$(printf '%s' "$output" | jq -r '.config.keys[] | select(.name=="LIGHTS_BOOT") | .default')" = off ]
-  [ "$(printf '%s' "$output" | jq -r '[.modules[] | select(.uninstall) | .id] | join(" ")')" = "25-reliability 70-openrgb 80-lights" ]
+  [ "$(printf '%s' "$output" | jq -r '[.modules[] | select(.uninstall) | .id] | join(" ")')" = "25-reliability 60-headless 70-openrgb 80-lights" ]
 }
 
 @test "plan --json: NDJSON events matching the schema, nothing changed" {
