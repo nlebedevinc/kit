@@ -1,104 +1,71 @@
-# beast
+# kit
 
-Scripts that turn a fresh Ubuntu Desktop into my headless GPU server, reached over SSH and Tailscale. Every step comes from [the setup log](docs/SETUP-LOG.md) of the real machine. Running it again is safe: anything already set up is left alone, and every install ends with a health check.
+This is how I set up the machines I own. I keep the steps here as scripts, so I can rebuild a machine from a fresh OS install without trying to remember what I did last time, and run them again whenever something drifts.
 
-| Part | Model |
+Right now it covers one machine: **beast**, my home GPU server. It runs Ubuntu without a desktop, and I reach it from my laptop over SSH and Tailscale. Everything the scripts do comes from my notes in [the setup log](docs/SETUP-LOG.md).
+
+| | beast |
 |---|---|
 | CPU | Intel Core Ultra 9 285K |
-| Motherboard | MSI PRO Z890-P WIFI |
-| GPU | Gigabyte GeForce RTX 5070 Ti Eagle OC ICE, 16 GB |
-| RAM | G.Skill Trident Z5 Neo RGB DDR5-6000, 2 × 32 GB (one stick for now) |
-| Storage | 2 TB NVMe, shared with Windows |
+| GPU | RTX 5070 Ti, 16 GB |
+| RAM | 2 × 32 GB DDR5 (one stick for now) |
+| Board | MSI PRO Z890-P WIFI |
 | OS | Ubuntu Desktop 24.04 / 26.04 |
 
-## Install
+## Setting up a fresh machine
 
-A fresh Ubuntu Desktop has `wget` but not `curl`:
+First the parts I do by hand: BIOS settings, partitioning and installing Ubuntu ([manual steps](docs/manual-steps.md)). Then, on the new machine:
 
 ```sh
 wget -qO- https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash
 ```
 
-With `curl`:
+(A fresh Ubuntu Desktop has `wget` but not `curl`. With `curl`: `curl -fsSL … | bash`.)
+
+That downloads this repo to `~/.local/share/beast`, adds a `beast` command and runs the whole setup. To see what it would change first, add `-s -- --dry-run` after `bash`.
+
+It stops when it needs me:
+
+- a link to sign in to Tailscale
+- `ssh-copy-id me@beast` from my laptop; SSH passwords stay on until my key is there
+- a yes before it turns the desktop off for good
+- the Wi-Fi password, if Ubuntu kept it in the desktop keyring
+
+Then I run `beast install` again. Steps that are already done are skipped, so running it twice is safe. It never reboots on its own; it tells me when a reboot is needed.
+
+## What it sets up
+
+- system updates and the tools I use: git, tmux, htop, btop, nvtop, sensors
+- a check that the NVIDIA driver works
+- automatic recovery: a hardware watchdog, reboot after a kernel panic, disk health monitoring
+- Tailscale, with key expiry turned off
+- SSH with keys only, no root login
+- Wi-Fi that connects at boot, before anyone logs in
+- no sleep, and boot to the command line
+- RGB control with OpenRGB, and the lights off at every boot
+- a health check at the end
+
+## Day to day
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash
+beast doctor       # is everything still healthy?
+beast update       # pull the latest scripts, update the system, re-apply
+beast plan         # what would change, without changing anything
+beast gui start    # the desktop, until the next reboot
+lights off         # or: on, 00AAFF
 ```
 
-This clones the repo to `~/.local/share/beast`, adds `beast` to `~/.local/bin` and runs `beast install`. To see what it would do first, add `-s -- --dry-run` after `bash`.
+`beast --help` lists the rest. My settings live in `~/.config/beast/beast.conf`; the defaults in [config/beast.conf.example](config/beast.conf.example) match beast.
 
-To read the code before running it:
-
-```sh
-git clone https://github.com/nlebedevinc/kit.git ~/.local/share/beast
-~/.local/share/beast/install.sh
-```
-
-**Manual steps first:** BIOS settings, partitioning and the Ubuntu install itself aren't scripted. See [docs/manual-steps.md](docs/manual-steps.md).
-
-**With an AI agent:** see [docs/agent-install.md](docs/agent-install.md) for a prompt that works with any agent that can run shell commands.
-
-## Modules
-
-| Module | Does |
-|---|---|
-| `00-preflight` | Checks the OS, session and sudo; creates `~/.config/beast/beast.conf` |
-| `10-base-packages` | System upgrade; git, curl, tmux, htop, btop, nvtop, lm-sensors, smartmontools… |
-| `20-nvidia` | Checks `nvidia-smi` (installs the driver only with `--fix`) |
-| `25-reliability` | Hardware watchdog, reboot on kernel panic, SSD health monitoring |
-| `30-tailscale` | Installs Tailscale, logs in, disables key expiry |
-| `40-ssh` | Key-only SSH, no root login |
-| `50-wifi` | Wi-Fi that connects at boot without a login, whatever the device is called |
-| `60-headless` | No sleep; boots to the command line |
-| `70-openrgb` | OpenRGB 1.1 (pinned, checksummed) for the RAM, GPU and motherboard lights |
-| `80-lights` | The `lights` command; lights off at every boot |
-| `99-verify` | Installs and runs `beast-check` |
-
-## Usage
-
-```sh
-beast install              # everything, then the health check
-beast install tailscale    # one module (plus preflight and the health check)
-beast plan                 # what install would do; changes nothing
-beast list                 # what's applied
-beast doctor               # the health check
-beast update               # git pull, system upgrade, then install
-beast uninstall lights     # undo reliability, headless, openrgb or lights
-beast config               # the settings in effect (secrets hidden)
-beast gui start            # the desktop, until the next boot (gui on: for good)
-```
-
-Add `--json` for machine-readable output, `--non-interactive` to never prompt, and `--yes` to accept confirmations. `beast describe` lists everything, including exit codes.
-
-`beast-check` also works on its own (it's installed to `/usr/local/bin`): `beast-check --strict`, `--section network`, `--json`, `--ascii`.
-
-```sh
-lights off                 # also: on, 00AAFF, status, detect
-```
-
-Settings live in `~/.config/beast/beast.conf`; the defaults match this machine. See [config/beast.conf.example](config/beast.conf.example).
-
-## Coming from kit
-
-This repo used to install a `kit` command. Everything its install did still works; the command is now `beast`:
-
-- The old one-liner's `--host beast` is still accepted.
-- Settings in `~/.config/kit/kit.conf` are copied into `~/.config/beast/beast.conf` on the first run.
-- `kit-lights` and `kit-lights-off.service` are replaced by `lights` and `lights-off.service` (after asking).
-- `kit update`, `kit config` and `kit uninstall headless` are `beast update`, `beast config` and `beast uninstall headless`.
-
-## Safety
-
-- SSH password login is turned off only once your key is on the server, and the new config is checked with `sshd -t` before SSH restarts.
-- Going headless needs Tailscale running, SSH enabled and an explicit yes.
-- beast never reboots. It tells you when a reboot is needed.
-- Secrets (Wi-Fi password, Tailscale keys) come from environment variables or a hidden prompt. They're never written to disk, logged or put on a command line.
+Secrets like the Wi-Fi password or a Tailscale auth key come from environment variables or a hidden prompt. They're never written to disk or logged.
 
 ## More
 
 - [Troubleshooting](docs/troubleshooting.md)
-- [Roadmap](ROADMAP.md)
-- [For AI agents](AGENTS.md)
+- [Setting it up with an AI agent](docs/agent-install.md)
+- [Notes for AI agents working on this repo](AGENTS.md)
+
+Before the command was called `beast`, this repo installed a `kit` command. Its settings in `~/.config/kit/kit.conf` are picked up on the first run, and the old `--host beast` flag still works.
 
 ## License
 
