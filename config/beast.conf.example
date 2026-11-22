@@ -1,0 +1,34 @@
+# beast configuration. Copied to ~/.config/beast/beast.conf on the first run.
+# Plain KEY=VALUE lines; values are not expanded by a shell. Defaults match beast.
+
+# Machine
+HOST_NAME=beast
+HOST_USER=me
+
+# Wi-Fi profile to make system-wide. Empty: the active Wi-Fi connection.
+WIFI_CONNECTION=""
+
+# Health check (beast-check)
+RAM_EXPECTED_STICKS=2
+RAM_MAX_MTS=5600              # Intel's UDIMM spec for the 285K; above it, XMP is likely on
+
+# Reliability (25-reliability)
+WATCHDOG_SEC=30
+WATCHDOG_REBOOT=2min
+PANIC_REBOOT_SEC=10
+
+# OpenRGB (70-openrgb): pinned AppImage and its SHA-256
+OPENRGB_VERSION=1.1
+OPENRGB_URL=https://codeberg.org/OpenRGB/OpenRGB/releases/download/release_1.1/OpenRGB_1.1_x86_64_8e16de2.AppImage
+OPENRGB_SHA256=d556c2273b0ef863dbee7ffdb438304b382add5d685c93c60758b42de3b0268d
+OPENRGB_BIN=/usr/local/bin/openrgb
+
+# Lights (80-lights, the lights command)
+LIGHTS_BOOT=off                  # off | hardware (keep the motherboard's stored rainbow)
+LIGHTS_RAM_DEVICES="ENE DRAM"    # all devices with this name
+LIGHTS_GPU_DEVICE="GeForce"
+LIGHTS_MB_DEVICE="MSI MYSTIC LIGHT"
+LIGHTS_MB_ZONES="0 1 2 3"        # JAF, JARGB 1, JARGB 2, JARGB 3
+LIGHTS_MB_ZONE_SIZE=120
+LIGHTS_ON_RAM_MODE=Rainbow
+LIGHTS_ON_COLOR=FFFFFF

@@ -1,0 +1,10 @@
+[Unit]
+Description=Turn off RGB lights at boot
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/lights off
+
+[Install]
+WantedBy=multi-user.target
