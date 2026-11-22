@@ -13,6 +13,14 @@ Scripts that turn a fresh Ubuntu Desktop into my headless GPU server, reached ov
 
 ## Install
 
+A fresh Ubuntu Desktop has `wget` but not `curl`:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash
+```
+
+With `curl`:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash
 ```

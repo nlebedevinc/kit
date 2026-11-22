@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # beast bootstrap:
 #
+#   wget -qO- https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash
 #   curl -fsSL https://raw.githubusercontent.com/nlebedevinc/kit/main/install.sh | bash
 #
 # Installs git and curl if missing, clones (or fast-forwards) this repo into
